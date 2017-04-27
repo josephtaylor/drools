@@ -3,7 +3,7 @@
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
@@ -18,7 +18,6 @@ package org.drools.compiler.integrationtests;
 import org.drools.compiler.CommonTestMethodBase;
 import org.drools.compiler.Message;
 import org.drools.compiler.kie.builder.impl.InternalKieModule;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.kie.api.KieBase;
 import org.kie.api.KieServices;
@@ -33,7 +32,11 @@ import org.kie.api.io.ResourceType;
 import org.kie.api.runtime.KieContainer;
 import org.kie.api.runtime.KieSession;
 import org.kie.api.runtime.conf.ClockTypeOption;
+import org.kie.internal.builder.InternalKieBuilder;
 import org.kie.internal.io.ResourceFactory;
+
+import java.util.List;
+import java.util.function.Predicate;
 
 public class KieBuilderTest extends CommonTestMethodBase {
 
@@ -278,6 +281,62 @@ public class KieBuilderTest extends CommonTestMethodBase {
     }
 
     @Test
+    public void testJavaSourceFileAndDrlDeployWithClassFilter() {
+        String allowedJava = "package org.drools.compiler;\n" +
+                "public class JavaSourceMessage { }\n";
+        String filteredJava = "package org.drools.compiler;\n" +
+                "public class ClassCausingClassNotFoundException { non.existing.Type foo() { return null; } }\n";
+        String drl = "package org.drools.compiler;\n" +
+                "import org.drools.compiler.JavaSourceMessage;" +
+                "rule R1 when\n" +
+                "   $m : JavaSourceMessage()\n" +
+                "then\n" +
+                "end\n";
+
+        String kmodule = "<kmodule xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" \n" +
+                "         xmlns=\"http://www.drools.org/xsd/kmodule\">\n" +
+                "  <kbase name=\"kbase1\">\n" +
+                "    <ksession name=\"ksession1\" default=\"true\"/>\n" +
+                "  </kbase>\n" +
+                "</kmodule>";
+
+        KieServices ks = KieServices.Factory.get();
+
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-kie-builder", "1.0.0" );
+        Resource allowedJavaResource = ResourceFactory.newByteArrayResource( allowedJava.getBytes() ).setResourceType( ResourceType.JAVA )
+                .setSourcePath( "org/drools/compiler/JavaSourceMessage.java" );
+        Resource filteredJavaResource = ResourceFactory.newByteArrayResource( filteredJava.getBytes() ).setResourceType( ResourceType.JAVA )
+                .setSourcePath( "org/drools/compiler/ClassCausingClassNotFoundException.java" );
+        Resource drlResource = ResourceFactory.newByteArrayResource( drl.getBytes() ).setResourceType( ResourceType.DRL )
+                .setSourcePath( "kbase1/drl1.drl" );
+
+        Predicate<String> filter = fileName -> !fileName.endsWith( "org/drools/compiler/ClassCausingClassNotFoundException.java" );
+
+        KieModule km = null;
+        try {
+            km = createAndDeployJar( ks,
+                                     kmodule,
+                                     filter,
+                                     releaseId1,
+                                     allowedJavaResource, filteredJavaResource, drlResource);
+        } catch ( IllegalStateException ise ) {
+            if ( ise.getMessage().contains( "org/drools/compiler/ClassCausingClassNotFoundException.java" ) ) {
+                fail( "Build failed because source file was not filtered out." );
+            } else {
+                throw ise;
+            }
+        }
+
+        KieContainer kieContainer = ks.newKieContainer(km.getReleaseId());
+        try {
+            Class<?> messageClass = kieContainer.getClassLoader().loadClass("org.drools.compiler.JavaSourceMessage");
+            assertNotNull(messageClass);
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException("Loading the java class failed.", e);
+        }
+    }
+
+    @Test
     public void testKieBuilderWithDotFiles() {
         // BZ-1044409
         final String KBASE_NAME = "kieBase";
@@ -319,4 +378,93 @@ public class KieBuilderTest extends CommonTestMethodBase {
         assertNotNull( kieBase );
     }
 
+    @Test
+    public void testMultipleKBaseWithDrlError() {
+        // RHBRMS-2651
+        String drl = "package org.drools.compiler;\n" +
+                     "rule \"test\"\n" +
+                     "  when\n" +
+                     "    Smurf\n" +
+                     "  then\n" +
+                     "end";
+
+        KieServices ks = KieServices.Factory.get();
+
+        KieModuleModel kproj = ks.newKieModuleModel();
+        kproj.newKieBaseModel( "kbase1" ).newKieSessionModel( "ksession1" ).setDefault( true );
+        kproj.newKieBaseModel( "kbase2" ).newKieSessionModel( "ksession2" );
+
+        ReleaseId releaseId = ks.newReleaseId( "org.kie", "test-kie-builder", "1.0.0" );
+        KieFileSystem kfs = ks.newKieFileSystem().generateAndWritePomXML( releaseId ).writeKModuleXML( kproj.toXML() );
+
+        Resource drlResource = ResourceFactory.newByteArrayResource( drl.getBytes() ).setResourceType( ResourceType.DRL )
+                                              .setSourcePath( "kbase1/drl1.drl" );
+
+        kfs.write( "src/main/resources/org/drools/compiler/drl1.drl", drlResource );
+
+        KieBuilder kb = ks.newKieBuilder( kfs ).buildAll();
+
+        List<org.kie.api.builder.Message> messages = kb.getResults().getMessages( org.kie.api.builder.Message.Level.ERROR );
+        assertEquals( 4, messages.size() );
+
+        assertTrue( messages.get(0).toString().contains( "kbase1" ) );
+        assertTrue( messages.get(1).toString().contains( "kbase1" ) );
+        assertTrue( messages.get(2).toString().contains( "kbase2" ) );
+        assertTrue( messages.get(3).toString().contains( "kbase2" ) );
+    }
+
+    @Test
+    public void testBuildWithKBaseAndKSessionWithIdenticalNames() {
+        // RHBRMS-2689
+        String kmodule = "<kmodule xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" \n" +
+                         "         xmlns=\"http://www.drools.org/xsd/kmodule\">\n" +
+                         "  <kbase name=\"name\">\n" +
+                         "    <ksession name=\"name\" default=\"true\"/>\n" +
+                         "  </kbase>\n" +
+                         "</kmodule>";
+
+        checkKModule( kmodule, 0 );
+    }
+
+    @Test
+    public void testBuildWithDuplicatedKSessionNames() {
+        // RHBRMS-2689
+        String kmodule = "<kmodule xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" \n" +
+                         "         xmlns=\"http://www.drools.org/xsd/kmodule\">\n" +
+                         "  <kbase name=\"kbase1\">\n" +
+                         "    <ksession name=\"ksessionA\" default=\"true\"/>\n" +
+                         "  </kbase>\n" +
+                         "  <kbase name=\"kbase2\">\n" +
+                         "    <ksession name=\"ksessionA\"/>\n" +
+                         "  </kbase>\n" +
+                         "</kmodule>";
+
+        checkKModule( kmodule, 1 );
+    }
+
+    @Test
+    public void testBuildWithDuplicatedKBaseNames() {
+        // RHBRMS-2689
+        String kmodule = "<kmodule xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" \n" +
+                         "         xmlns=\"http://www.drools.org/xsd/kmodule\">\n" +
+                         "  <kbase name=\"kbase1\">\n" +
+                         "    <ksession name=\"ksessionA\" default=\"true\"/>\n" +
+                         "  </kbase>\n" +
+                         "  <kbase name=\"kbase1\">\n" +
+                         "    <ksession name=\"ksessionB\"/>\n" +
+                         "  </kbase>\n" +
+                         "</kmodule>";
+
+        checkKModule( kmodule, 1 );
+    }
+
+    private void checkKModule( String kmodule, int expectedErrors ) {
+        KieServices ks = KieServices.Factory.get();
+        ReleaseId releaseId = ks.newReleaseId( "org.kie", "test-kie-builder", "1.0.0" );
+        KieFileSystem kfs = ks.newKieFileSystem().generateAndWritePomXML( releaseId ).writeKModuleXML( kmodule );
+        KieBuilder kieBuilder = ks.newKieBuilder( kfs );
+        ((InternalKieBuilder) kieBuilder).buildAll();
+        Results results = kieBuilder.getResults();
+        assertEquals( expectedErrors, results.getMessages( org.kie.api.builder.Message.Level.ERROR ).size() );
+    }
 }

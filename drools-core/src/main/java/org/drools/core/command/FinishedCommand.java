@@ -16,12 +16,12 @@
 
 package org.drools.core.command;
 
-import org.drools.core.command.impl.GenericCommand;
-import org.kie.internal.command.Context;
+import org.drools.core.command.impl.ExecutableCommand;
+import org.kie.api.runtime.Context;
 
 public class FinishedCommand
     implements
-    GenericCommand<Void> {
+    ExecutableCommand<Void> {
 
     public FinishedCommand() {
     }

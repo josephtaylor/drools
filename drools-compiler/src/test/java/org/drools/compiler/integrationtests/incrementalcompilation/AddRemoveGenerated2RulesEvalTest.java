@@ -21,8 +21,6 @@ public class AddRemoveGenerated2RulesEvalTest extends AbstractAddRemoveGenerated
         return generateRulesConstraintsCombinations(
                 " Integer() \n",
                 " ${variableNamePlaceholder}: Integer() eval(${variableNamePlaceholder} == 1) \n",
-                // Fails on MVEL NPE
-                //  " Integer(${variableNamePlaceholder}: this.intValue(), eval(${variableNamePlaceholder} == 1)) \n",
                 " exists(Integer() and exists(Integer() and Integer())) \n");
     }
 }

@@ -16,19 +16,6 @@
 
 package org.drools.core.rule;
 
-import org.drools.core.base.ClassObjectType;
-import org.drools.core.factmodel.AnnotationDefinition;
-import org.drools.core.reteoo.NodeTypeEnums;
-import org.drools.core.rule.constraint.MvelConstraint;
-import org.drools.core.spi.AcceptsClassObjectType;
-import org.drools.core.spi.Constraint;
-import org.drools.core.spi.Constraint.ConstraintType;
-import org.drools.core.spi.InternalReadAccessor;
-import org.drools.core.spi.ObjectType;
-import org.drools.core.spi.PatternExtractor;
-import org.drools.core.spi.SelfDateExtractor;
-import org.drools.core.spi.SelfNumberExtractor;
-
 import java.io.Externalizable;
 import java.io.IOException;
 import java.io.ObjectInput;
@@ -43,6 +30,23 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.drools.core.base.ClassObjectType;
+import org.drools.core.factmodel.AnnotationDefinition;
+import org.drools.core.reteoo.NodeTypeEnums;
+import org.drools.core.rule.constraint.MvelConstraint;
+import org.drools.core.rule.constraint.XpathConstraint;
+import org.drools.core.spi.AcceptsClassObjectType;
+import org.drools.core.spi.Constraint;
+import org.drools.core.spi.Constraint.ConstraintType;
+import org.drools.core.spi.InternalReadAccessor;
+import org.drools.core.spi.ObjectType;
+import org.drools.core.spi.PatternExtractor;
+import org.drools.core.spi.SelfDateExtractor;
+import org.drools.core.spi.SelfNumberExtractor;
+
+import static org.drools.core.util.ClassUtils.convertFromPrimitiveType;
+import static org.drools.core.util.ClassUtils.isIterable;
+
 public class Pattern
     implements
     RuleConditionElement,
@@ -56,7 +60,7 @@ public class Pattern
     private int                      index;
     private PatternSource            source;
     private List<Behavior>           behaviors;
-    private List<String>             listenedProperties;
+    private Collection<String>       listenedProperties;
     private boolean                  hasNegativeConstraint;
 
     private transient XpathBackReference backRefDeclarations;
@@ -68,6 +72,8 @@ public class Pattern
     private int offset;
 
     private boolean           passive;
+    
+    private XpathConstraint xPath;
 
     public Pattern() {
         this(0,
@@ -141,13 +147,14 @@ public class Pattern
         index = in.readInt();
         source = (PatternSource) in.readObject();
         offset = in.readInt();
-        listenedProperties = (List<String>) in.readObject();
+        listenedProperties = (Collection<String>) in.readObject();
         if ( source instanceof From ) {
             ((From)source).setResultPattern( this );
         }
         annotations = (Map<String,AnnotationDefinition>) in.readObject();
         passive = in.readBoolean();
         hasNegativeConstraint = in.readBoolean();
+        xPath = (XpathConstraint) in.readObject();
     }
 
     public void writeExternal(ObjectOutput out) throws IOException {
@@ -163,6 +170,7 @@ public class Pattern
         out.writeObject( annotations );
         out.writeBoolean( passive );
         out.writeBoolean(hasNegativeConstraint);
+        out.writeObject(xPath);
     }
     
     public static InternalReadAccessor getReadAcessor(ObjectType objectType) {
@@ -280,6 +288,8 @@ public class Pattern
         }
         if ( constraint.getType().equals( Constraint.ConstraintType.UNKNOWN ) ) {
             this.setConstraintType( (MutableTypeConstraint) constraint );
+        } else if ( constraint.getType().equals( Constraint.ConstraintType.XPATH ) ) {
+            this.xPath = (XpathConstraint) constraint;
         }
         this.constraints.add(index, constraint);
     }
@@ -291,6 +301,8 @@ public class Pattern
         for (Constraint constraint : constraints) {
             if ( constraint.getType().equals( Constraint.ConstraintType.UNKNOWN ) ) {
                 this.setConstraintType( (MutableTypeConstraint) constraint );
+            } else if ( constraint.getType().equals( Constraint.ConstraintType.XPATH ) ) {
+                this.xPath = (XpathConstraint) constraint;
             }
             this.constraints.add(constraint);
         }
@@ -327,6 +339,18 @@ public class Pattern
             }
         }
         return combinableConstraints;
+    }
+    
+    public boolean hasXPath() {
+        return xPath != null;
+    }
+
+    public XpathConstraint getXpathConstraint() {
+        return xPath;
+    }
+
+    public Declaration getXPathDeclaration() {
+        return xPath != null ? xPath.getDeclaration() : null;
     }
 
     public Declaration addDeclaration(final String identifier) {
@@ -494,11 +518,11 @@ public class Pattern
         this.behaviors.add( behavior );
     }
 
-    public List<String> getListenedProperties() {
+    public Collection<String> getListenedProperties() {
         return listenedProperties;
     }
 
-    public void setListenedProperties(List<String> listenedProperties) {
+    public void setListenedProperties(Collection<String> listenedProperties) {
         this.listenedProperties = listenedProperties;
     }
 
@@ -519,5 +543,18 @@ public class Pattern
 
     public List<Class<?>> getXpathBackReferenceClasses() {
         return backRefDeclarations != null ? backRefDeclarations.getBackReferenceClasses() : Collections.EMPTY_LIST;
+    }
+
+    public boolean isCompatibleWithAccumulateReturnType( Class<?> returnType ) {
+        return returnType == null ||
+               returnType == Object.class ||
+               ( returnType == Comparable.class && objectType instanceof ClassObjectType && Number.class.isAssignableFrom( ((ClassObjectType)objectType).getClassType() ) ) ||
+               objectType.isAssignableFrom( convertFromPrimitiveType(returnType) );
+    }
+
+    public boolean isCompatibleWithFromReturnType( Class<?> returnType ) {
+        return isCompatibleWithAccumulateReturnType( returnType ) ||
+               isIterable( returnType ) ||
+               ( objectType instanceof ClassObjectType && returnType.isAssignableFrom( ((ClassObjectType)objectType).getClassType()) );
     }
 }

@@ -18,12 +18,14 @@ package org.drools.workbench.models.guided.dtable.shared.model;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 import org.drools.workbench.models.datamodel.auditlog.AuditLog;
 import org.drools.workbench.models.datamodel.imports.HasImports;
 import org.drools.workbench.models.datamodel.imports.Imports;
 import org.drools.workbench.models.datamodel.packages.HasPackageName;
 import org.drools.workbench.models.datamodel.rule.FactPattern;
+import org.drools.workbench.models.datamodel.rule.FromCompositeFactPattern;
 import org.drools.workbench.models.datamodel.rule.IPattern;
 import org.drools.workbench.models.guided.dtable.shared.auditlog.DecisionTableAuditLogFilter;
 import org.drools.workbench.models.guided.dtable.shared.model.adaptors.FactPatternPattern52Adaptor;
@@ -91,7 +93,42 @@ public class GuidedDecisionTable52 implements HasImports,
         LIMITED_ENTRY
     }
 
+    /**
+     * Lists available dtable hit policies.
+     * <br>
+     * <br>
+     * Source code is genarated based on the selection.
+     * NONE is the default, setting no limitations for the table setup
+     * and generating nothing that the user does not add himself.
+     */
+    public enum HitPolicy {
+
+        NONE( "#" ),
+        RESOLVED_HIT( "RC" ),
+        UNIQUE_HIT( "U" ),
+        FIRST_HIT( "F" ),
+        RULE_ORDER( "R" );
+
+        public static final String RESOLVED_HIT_METADATA_NAME = "ResolvedHitPriorityOverRow";
+
+        private final String id;
+
+        HitPolicy( final String id ) {
+            this.id = id;
+        }
+
+        public String getId() {
+            return id;
+        }
+
+        public static HitPolicy getDefault() {
+            return NONE;
+        }
+    }
+
     private TableFormat tableFormat = TableFormat.EXTENDED_ENTRY;
+
+    private HitPolicy hitPolicy = HitPolicy.getDefault();
 
     /**
      * First column is always row number. Second column is description.
@@ -114,33 +151,32 @@ public class GuidedDecisionTable52 implements HasImports,
      */
     public List<Pattern52> getPatterns() {
         final List<Pattern52> patterns = new ArrayList<Pattern52>();
-        for ( CompositeColumn<?> cc : conditionPatterns ) {
-            if ( cc instanceof Pattern52 ) {
-                patterns.add( (Pattern52) cc );
+        for (CompositeColumn<?> cc : conditionPatterns) {
+            if (cc instanceof Pattern52) {
+                patterns.add((Pattern52) cc);
             }
         }
-        return Collections.unmodifiableList( patterns );
+        return Collections.unmodifiableList(patterns);
     }
 
     public List<CompositeColumn<? extends BaseColumn>> getConditions() {
         return this.conditionPatterns;
     }
 
-    public Pattern52 getConditionPattern( final String boundName ) {
-        for ( CompositeColumn<?> cc : conditionPatterns ) {
-            if ( cc instanceof Pattern52 ) {
+    public Pattern52 getConditionPattern(final String boundName) {
+        for (CompositeColumn<?> cc : conditionPatterns) {
+            if (cc instanceof Pattern52) {
                 final Pattern52 p = (Pattern52) cc;
-                if ( p.isBound() && p.getBoundName().equals( boundName ) ) {
+                if (p.isBound() && p.getBoundName().equals(boundName)) {
                     return p;
                 }
-            } else if ( cc instanceof BRLConditionColumn ) {
+            } else if (cc instanceof BRLConditionColumn) {
                 final BRLConditionColumn brlConditionColumn = (BRLConditionColumn) cc;
-                for ( IPattern p : brlConditionColumn.getDefinition() ) {
-                    if ( p instanceof FactPattern ) {
-                        final FactPattern fp = (FactPattern) p;
-                        if ( fp.isBound() && fp.getBoundName().equals( boundName ) ) {
-                            return new FactPatternPattern52Adaptor( fp );
-                        }
+                for (IPattern p : brlConditionColumn.getDefinition()) {
+                    final Optional<Pattern52> factPattern = getConditionPattern(boundName,
+                                                                                p);
+                    if (factPattern.isPresent()) {
+                        return factPattern.get();
                     }
                 }
             }
@@ -148,11 +184,30 @@ public class GuidedDecisionTable52 implements HasImports,
         return null;
     }
 
-    public Pattern52 getPattern( final ConditionCol52 col ) {
-        for ( CompositeColumn<?> cc : conditionPatterns ) {
-            if ( cc instanceof Pattern52 ) {
+    private Optional<Pattern52> getConditionPattern(final String boundName,
+                                                    final IPattern p) {
+        if (p instanceof FactPattern) {
+            final FactPattern fp = (FactPattern) p;
+            if (fp.isBound() && fp.getBoundName().equals(boundName)) {
+                return Optional.of(new FactPatternPattern52Adaptor(fp));
+            }
+        } else if (p instanceof FromCompositeFactPattern) {
+            final FromCompositeFactPattern fcfp = (FromCompositeFactPattern) p;
+            final FactPattern fp = fcfp.getFactPattern();
+            final Optional<Pattern52> factPattern = getConditionPattern(boundName,
+                                                                        fp);
+            if (factPattern.isPresent()) {
+                return factPattern;
+            }
+        }
+        return Optional.empty();
+    }
+
+    public Pattern52 getPattern(final ConditionCol52 col) {
+        for (CompositeColumn<?> cc : conditionPatterns) {
+            if (cc instanceof Pattern52) {
                 final Pattern52 p = (Pattern52) cc;
-                if ( p.getChildColumns().contains( col ) ) {
+                if (p.getChildColumns().contains(col)) {
                     return p;
                 }
             }
@@ -160,53 +215,53 @@ public class GuidedDecisionTable52 implements HasImports,
         return new Pattern52();
     }
 
-    public BRLColumn<?, ?> getBRLColumn( final BRLVariableColumn col ) {
-        for ( CompositeColumn<? extends BaseColumn> cc : conditionPatterns ) {
-            if ( cc instanceof BRLConditionColumn ) {
+    public BRLColumn<?, ?> getBRLColumn(final BRLVariableColumn col) {
+        for (CompositeColumn<? extends BaseColumn> cc : conditionPatterns) {
+            if (cc instanceof BRLConditionColumn) {
                 final BRLConditionColumn brl = (BRLConditionColumn) cc;
-                if ( brl.getChildColumns().contains( col ) ) {
+                if (brl.getChildColumns().contains(col)) {
                     return brl;
                 }
             }
         }
-        for ( ActionCol52 ac : actionCols ) {
-            if ( ac instanceof BRLActionColumn ) {
+        for (ActionCol52 ac : actionCols) {
+            if (ac instanceof BRLActionColumn) {
                 final BRLActionColumn brl = (BRLActionColumn) ac;
-                if ( brl.getChildColumns().contains( col ) ) {
+                if (brl.getChildColumns().contains(col)) {
                     return brl;
                 }
             }
         }
-        throw new IllegalStateException( "col is not a child of any of the defined BRLColumns." );
+        throw new IllegalStateException("col is not a child of any of the defined BRLColumns.");
     }
 
-    public BRLConditionColumn getBRLColumn( BRLConditionVariableColumn col ) {
-        for ( CompositeColumn<? extends BaseColumn> cc : conditionPatterns ) {
-            if ( cc instanceof BRLConditionColumn ) {
+    public BRLConditionColumn getBRLColumn(BRLConditionVariableColumn col) {
+        for (CompositeColumn<? extends BaseColumn> cc : conditionPatterns) {
+            if (cc instanceof BRLConditionColumn) {
                 final BRLConditionColumn brl = (BRLConditionColumn) cc;
-                if ( brl.getChildColumns().contains( col ) ) {
+                if (brl.getChildColumns().contains(col)) {
                     return brl;
                 }
             }
         }
-        throw new IllegalStateException( "col is not a child of any of the defined BRLColumns." );
+        throw new IllegalStateException("col is not a child of any of the defined BRLColumns.");
     }
 
-    public BRLActionColumn getBRLColumn( BRLActionVariableColumn col ) {
-        for ( ActionCol52 ac : actionCols ) {
-            if ( ac instanceof BRLActionColumn ) {
+    public BRLActionColumn getBRLColumn(BRLActionVariableColumn col) {
+        for (ActionCol52 ac : actionCols) {
+            if (ac instanceof BRLActionColumn) {
                 final BRLActionColumn brl = (BRLActionColumn) ac;
-                if ( brl.getChildColumns().contains( col ) ) {
+                if (brl.getChildColumns().contains(col)) {
                     return brl;
                 }
             }
         }
-        throw new IllegalStateException( "col is not a child of any of the defined BRLColumns." );
+        throw new IllegalStateException("col is not a child of any of the defined BRLColumns.");
     }
 
     public long getConditionsCount() {
         long size = 0;
-        for ( CompositeColumn<?> cc : this.conditionPatterns ) {
+        for (CompositeColumn<?> cc : this.conditionPatterns) {
             size = size + cc.getChildColumns().size();
         }
         return size;
@@ -225,33 +280,32 @@ public class GuidedDecisionTable52 implements HasImports,
      */
     public List<BaseColumn> getExpandedColumns() {
         final List<BaseColumn> columns = new ArrayList<BaseColumn>();
-        columns.add( rowNumberCol );
-        columns.add( descriptionCol );
-        columns.addAll( metadataCols );
-        columns.addAll( attributeCols );
-        for ( CompositeColumn<?> cc : this.conditionPatterns ) {
-            boolean explode = !( cc instanceof LimitedEntryCol );
-            if ( explode ) {
-                for ( BaseColumn bc : cc.getChildColumns() ) {
-                    columns.add( bc );
+        columns.add(rowNumberCol);
+        columns.add(descriptionCol);
+        columns.addAll(metadataCols);
+        columns.addAll(attributeCols);
+        for (CompositeColumn<?> cc : this.conditionPatterns) {
+            boolean explode = !(cc instanceof LimitedEntryCol);
+            if (explode) {
+                for (BaseColumn bc : cc.getChildColumns()) {
+                    columns.add(bc);
                 }
             } else {
-                columns.add( cc );
+                columns.add(cc);
             }
         }
-        for ( ActionCol52 ac : this.actionCols ) {
-            if ( ac instanceof BRLActionColumn ) {
-                if ( ac instanceof LimitedEntryCol ) {
-                    columns.add( ac );
+        for (ActionCol52 ac : this.actionCols) {
+            if (ac instanceof BRLActionColumn) {
+                if (ac instanceof LimitedEntryCol) {
+                    columns.add(ac);
                 } else {
                     final BRLActionColumn bac = (BRLActionColumn) ac;
-                    for ( BRLActionVariableColumn variable : bac.getChildColumns() ) {
-                        columns.add( variable );
+                    for (BRLActionVariableColumn variable : bac.getChildColumns()) {
+                        columns.add(variable);
                     }
                 }
-
             } else {
-                columns.add( ac );
+                columns.add(ac);
             }
         }
         return columns;
@@ -259,14 +313,14 @@ public class GuidedDecisionTable52 implements HasImports,
 
     public DescriptionCol52 getDescriptionCol() {
         // De-serialising old models sets this field to null
-        if ( this.descriptionCol == null ) {
+        if (this.descriptionCol == null) {
             this.descriptionCol = new DescriptionCol52();
         }
         return this.descriptionCol;
     }
 
     public List<MetadataCol52> getMetadataCols() {
-        if ( null == metadataCols ) {
+        if (null == metadataCols) {
             metadataCols = new ArrayList<MetadataCol52>();
         }
         return metadataCols;
@@ -278,7 +332,7 @@ public class GuidedDecisionTable52 implements HasImports,
 
     public RowNumberCol52 getRowNumberCol() {
         // De-serialising old models sets this field to null
-        if ( this.rowNumberCol == null ) {
+        if (this.rowNumberCol == null) {
             this.rowNumberCol = new RowNumberCol52();
         }
         return this.rowNumberCol;
@@ -288,39 +342,39 @@ public class GuidedDecisionTable52 implements HasImports,
         return tableName;
     }
 
-    public void setData( final List<List<DTCellValue52>> data ) {
+    public void setData(final List<List<DTCellValue52>> data) {
         this.data = data;
     }
 
-    public void setRowNumberCol( final RowNumberCol52 rowNumberCol ) {
+    public void setRowNumberCol(final RowNumberCol52 rowNumberCol) {
         this.rowNumberCol = rowNumberCol;
     }
 
-    public void setDescriptionCol( final DescriptionCol52 descriptionCol ) {
+    public void setDescriptionCol(final DescriptionCol52 descriptionCol) {
         this.descriptionCol = descriptionCol;
     }
 
-    public void setMetadataCols( final List<MetadataCol52> metadataCols ) {
+    public void setMetadataCols(final List<MetadataCol52> metadataCols) {
         this.metadataCols = metadataCols;
     }
 
-    public void setAttributeCols( final List<AttributeCol52> attributeCols ) {
+    public void setAttributeCols(final List<AttributeCol52> attributeCols) {
         this.attributeCols = attributeCols;
     }
 
-    public void setConditionPatterns( final List<CompositeColumn<? extends BaseColumn>> conditionPatterns ) {
+    public void setConditionPatterns(final List<CompositeColumn<? extends BaseColumn>> conditionPatterns) {
         this.conditionPatterns = conditionPatterns;
     }
 
-    public void setActionCols( final List<ActionCol52> actionCols ) {
+    public void setActionCols(final List<ActionCol52> actionCols) {
         this.actionCols = actionCols;
     }
 
-    public void setParentName( final String parentName ) {
+    public void setParentName(final String parentName) {
         this.parentName = parentName;
     }
 
-    public void setTableName( final String tableName ) {
+    public void setTableName(final String tableName) {
         this.tableName = tableName;
     }
 
@@ -329,8 +383,16 @@ public class GuidedDecisionTable52 implements HasImports,
         return tableFormat == null ? TableFormat.EXTENDED_ENTRY : tableFormat;
     }
 
-    public void setTableFormat( final TableFormat tableFormat ) {
+    public void setTableFormat(final TableFormat tableFormat) {
         this.tableFormat = tableFormat;
+    }
+
+    public HitPolicy getHitPolicy() {
+        return hitPolicy == null ? HitPolicy.getDefault() : hitPolicy;
+    }
+
+    public void setHitPolicy(final HitPolicy hitPolicy) {
+        this.hitPolicy = hitPolicy;
     }
 
     /**
@@ -338,8 +400,8 @@ public class GuidedDecisionTable52 implements HasImports,
      * @return
      */
     public AuditLog getAuditLog() {
-        if ( this.auditLog == null ) {
-            this.auditLog = new AuditLog( new DecisionTableAuditLogFilter() );
+        if (this.auditLog == null) {
+            this.auditLog = new AuditLog(new DecisionTableAuditLogFilter());
         }
         return this.auditLog;
     }
@@ -349,7 +411,7 @@ public class GuidedDecisionTable52 implements HasImports,
     }
 
     @Override
-    public void setImports( final Imports imports ) {
+    public void setImports(final Imports imports) {
         this.imports = imports;
     }
 
@@ -357,8 +419,7 @@ public class GuidedDecisionTable52 implements HasImports,
         return packageName;
     }
 
-    public void setPackageName( String packageName ) {
+    public void setPackageName(String packageName) {
         this.packageName = packageName;
     }
-
 }

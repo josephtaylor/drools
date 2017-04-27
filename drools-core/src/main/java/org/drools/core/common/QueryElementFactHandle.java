@@ -16,6 +16,7 @@
 
 package org.drools.core.common;
 
+import org.drools.core.WorkingMemoryEntryPoint;
 import org.drools.core.factmodel.traits.TraitTypeEnum;
 import org.drools.core.reteoo.LeftTuple;
 import org.drools.core.reteoo.RightTuple;
@@ -25,6 +26,8 @@ import javax.xml.bind.annotation.XmlAccessType;
 import javax.xml.bind.annotation.XmlAccessorType;
 import javax.xml.bind.annotation.XmlAttribute;
 import java.util.Arrays;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 @XmlAccessorType(XmlAccessType.NONE)
 public class QueryElementFactHandle
@@ -94,7 +97,7 @@ public class QueryElementFactHandle
         this.object = object;
     }    
 
-    public InternalWorkingMemoryEntryPoint getEntryPoint() {
+    public WorkingMemoryEntryPoint getEntryPoint() {
         return null;
         //throw new UnsupportedOperationException( "DisonnectedFactHandle does not support this method" );
     }
@@ -135,7 +138,7 @@ public class QueryElementFactHandle
         return true;
     }
 
-    public void setEntryPoint(InternalWorkingMemoryEntryPoint ep) {
+    public void setEntryPoint(WorkingMemoryEntryPoint ep ) {
         throw new UnsupportedOperationException( "QueryElementFactHandle does not support this method" );
     }
 
@@ -144,6 +147,21 @@ public class QueryElementFactHandle
     }
 
     public void setFirstLeftTuple(LeftTuple leftTuple) {
+    }
+
+    @Override
+    public LinkedTuples getLinkedTuples() {
+        return null;
+    }
+
+    @Override
+    public LinkedTuples detachLinkedTuples() {
+        return null;
+    }
+
+    @Override
+    public LinkedTuples detachLinkedTuplesForPartition(int i) {
+        return null;
     }
 
     public void setLastLeftTuple(LeftTuple leftTuple) {
@@ -158,10 +176,6 @@ public class QueryElementFactHandle
         throw new UnsupportedOperationException( "QueryElementFactHandle does not support this method" );
     }
 
-    public InternalFactHandle quickClone() {
-        return clone();
-    }    
-    
     public InternalFactHandle clone() {
         return new QueryElementFactHandle( object, id, identityHashCode, recency );
     }
@@ -248,4 +262,28 @@ public class QueryElementFactHandle
         throw new UnsupportedOperationException( "QueryElementFactHandle does not yet support this method" );
     }
 
+    @Override
+    public boolean isExpired() {
+        return false;
+    }
+
+    @Override
+    public boolean isPendingRemoveFromStore() {
+        return false;
+    }
+
+    public void forEachRightTuple( Consumer<RightTuple> rightTupleConsumer ) { }
+
+    @Override
+    public void forEachLeftTuple( Consumer<LeftTuple> leftTupleConsumer ) { }
+
+    @Override
+    public RightTuple findFirstRightTuple( Predicate<RightTuple> rightTuplePredicate ) {
+        return null;
+    }
+
+    @Override
+    public LeftTuple findFirstLeftTuple( Predicate<LeftTuple> lefttTuplePredicate ) {
+        return null;
+    }
 }

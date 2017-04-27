@@ -23,20 +23,14 @@ import java.io.ObjectOutput;
 import java.io.Serializable;
 import java.math.BigDecimal;
 
-import org.kie.api.runtime.rule.AccumulateFunction;
-
 /**
  * An implementation of an accumulator capable of calculating sum of values
  */
-public class BigDecimalSumAccumulateFunction implements AccumulateFunction {
+public class BigDecimalSumAccumulateFunction extends AbstractAccumulateFunction<BigDecimalSumAccumulateFunction.SumData> {
 
-    public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
+    public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException { }
 
-    }
-
-    public void writeExternal(ObjectOutput out) throws IOException {
-
-    }
+    public void writeExternal(ObjectOutput out) throws IOException { }
 
     protected static class SumData implements Externalizable {
         public BigDecimal total = BigDecimal.ZERO;
@@ -44,68 +38,44 @@ public class BigDecimalSumAccumulateFunction implements AccumulateFunction {
         public SumData() {}
 
         public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
-            total   = (BigDecimal) in.readObject();
+            total = (BigDecimal) in.readObject();
         }
 
         public void writeExternal(ObjectOutput out) throws IOException {
             out.writeObject( total );
         }
-
     }
 
-    /* (non-Javadoc)
-     * @see org.kie.base.accumulators.AccumulateFunction#createContext()
-     */
-    public Serializable createContext() {
+    public SumData createContext() {
         return new SumData();
     }
 
-    /* (non-Javadoc)
-     * @see org.kie.base.accumulators.AccumulateFunction#init(java.lang.Object)
-     */
-    public void init(Serializable context) throws Exception {
-        SumData data = (SumData) context;
+    public void init(SumData data) {
         data.total = BigDecimal.ZERO;
     }
 
-    /* (non-Javadoc)
-     * @see org.kie.base.accumulators.AccumulateFunction#accumulate(java.lang.Object, java.lang.Object)
-     */
-    public void accumulate(Serializable context,
+    public void accumulate(SumData data,
                            Object value) {
-        SumData data = (SumData) context;
-        data.total = data.total.add( BigDecimal.valueOf( ( (Number) value ).doubleValue() ) );
+        if (value != null) {
+            data.total = data.total.add( (BigDecimal) value );
+        }
     }
 
-    /* (non-Javadoc)
-     * @see org.kie.base.accumulators.AccumulateFunction#reverse(java.lang.Object, java.lang.Object)
-     */
-    public void reverse(Serializable context,
-                        Object value) throws Exception {
-        SumData data = (SumData) context;
-        data.total = data.total.subtract( BigDecimal.valueOf( ( (Number) value ).doubleValue() ) );
+    public void reverse(SumData data, Object value) {
+        if (value != null) {
+            data.total = data.total.subtract( (BigDecimal) value );
+        }
     }
 
-    /* (non-Javadoc)
-     * @see org.kie.base.accumulators.AccumulateFunction#getResult(java.lang.Object)
-     */
-    public Object getResult(Serializable context) throws Exception {
-        SumData data = (SumData) context;
+    public Object getResult(SumData data) {
         return data.total;
     }
 
-    /* (non-Javadoc)
-     * @see org.kie.base.accumulators.AccumulateFunction#supportsReverse()
-     */
     public boolean supportsReverse() {
         return true;
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    public Class< ? > getResultType() {
-        return Number.class;
+    public Class<?> getResultType() {
+        return BigDecimal.class;
     }
-
 }

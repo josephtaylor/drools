@@ -16,6 +16,9 @@
 
 package org.drools.compiler.reteoo;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.drools.core.RuleBaseConfiguration;
 import org.drools.core.common.InternalFactHandle;
 import org.drools.core.common.InternalWorkingMemory;
@@ -24,10 +27,8 @@ import org.drools.core.common.MemoryFactory;
 import org.drools.core.common.UpdateContext;
 import org.drools.core.reteoo.LeftTuple;
 import org.drools.core.reteoo.LeftTupleImpl;
-import org.drools.core.reteoo.LeftTupleSink;
 import org.drools.core.reteoo.LeftTupleSinkNode;
 import org.drools.core.reteoo.LeftTupleSource;
-import org.drools.core.reteoo.ModifyPreviousTuples;
 import org.drools.core.reteoo.ObjectTypeNode;
 import org.drools.core.reteoo.ReteooBuilder;
 import org.drools.core.reteoo.RightTuple;
@@ -35,9 +36,6 @@ import org.drools.core.reteoo.RuleRemovalContext;
 import org.drools.core.reteoo.Sink;
 import org.drools.core.reteoo.builder.BuildContext;
 import org.drools.core.spi.PropagationContext;
-
-import java.util.ArrayList;
-import java.util.List;
 
 public class MockLeftTupleSink extends LeftTupleSource
     implements
@@ -81,17 +79,6 @@ public class MockLeftTupleSink extends LeftTupleSource
 
     public void ruleAttached() {
         // TODO Auto-generated method stub
-    }
-
-    public int getId() {
-        return this.id;
-    }
-    
-    public void updateSink(final LeftTupleSink sink,
-                           final PropagationContext context,
-                           final InternalWorkingMemory workingMemory) {
-        // TODO Auto-generated method stub
-
     }
 
     protected boolean doRemove(final RuleRemovalContext context,
@@ -156,17 +143,6 @@ public class MockLeftTupleSink extends LeftTupleSource
         return 0;
     }
 
-    public void modifyLeftTuple(InternalFactHandle factHandle,
-                                ModifyPreviousTuples modifyPreviousTuples,
-                                PropagationContext context,
-                                InternalWorkingMemory workingMemory) {
-    }
-
-    public void modifyLeftTuple(LeftTuple leftTuple,
-                                PropagationContext context,
-                                InternalWorkingMemory workingMemory) {
-    }
-    
     public LeftTuple createLeftTuple(InternalFactHandle factHandle,
                                      Sink sink,
                                      boolean leftTupleMemoryEnabled) {
@@ -201,12 +177,8 @@ public class MockLeftTupleSink extends LeftTupleSource
         return new LeftTupleImpl(leftTuple, rightTuple, currentLeftChild, currentRightChild, sink, leftTupleMemoryEnabled );        
     }
 
-    public LeftTupleSource getLeftTupleSource() {
-        return super.getLeftTupleSource();
-    }
-
     @Override
-    protected ObjectTypeNode getObjectTypeNode() {
+    public ObjectTypeNode getObjectTypeNode() {
         return null;
     }
 

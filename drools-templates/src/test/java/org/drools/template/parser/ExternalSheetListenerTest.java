@@ -147,6 +147,14 @@ public class ExternalSheetListenerTest {
                 }
 
                 @Override
+                public void submit( AtomicAction action ) { }
+
+                @Override
+                public <T> T getKieRuntime( Class<T> cls ) {
+                    return null;
+                }
+
+                @Override
                 public <T> T execute(Command<T> command) {
                     return null;
                 }
@@ -269,6 +277,11 @@ public class ExternalSheetListenerTest {
 
                 @Override
                 public void update(org.kie.api.runtime.rule.FactHandle handle, Object object) {
+
+                }
+
+                @Override
+                public void update(org.kie.api.runtime.rule.FactHandle handle, Object object, String... modifiedProperties) {
 
                 }
 

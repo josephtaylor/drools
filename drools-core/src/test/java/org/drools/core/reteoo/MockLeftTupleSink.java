@@ -16,6 +16,9 @@
 
 package org.drools.core.reteoo;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.drools.core.RuleBaseConfiguration;
 import org.drools.core.common.InternalFactHandle;
 import org.drools.core.common.InternalWorkingMemory;
@@ -24,9 +27,6 @@ import org.drools.core.common.MemoryFactory;
 import org.drools.core.common.UpdateContext;
 import org.drools.core.reteoo.builder.BuildContext;
 import org.drools.core.spi.PropagationContext;
-
-import java.util.ArrayList;
-import java.util.List;
 
 public class MockLeftTupleSink extends LeftTupleSource
     implements
@@ -72,17 +72,8 @@ public class MockLeftTupleSink extends LeftTupleSource
     public void ruleAttached() {
     }
 
-    public int getId() {
-        return this.id;
-    }
-
     public Memory createMemory(final RuleBaseConfiguration config, InternalWorkingMemory wm) {
-        return new PathMemory(null);
-    }
-
-    public void updateSink(final LeftTupleSink sink,
-                           final PropagationContext context,
-                           final InternalWorkingMemory workingMemory) {
+        return new PathMemory(null, null);
     }
 
     protected boolean doRemove(final RuleRemovalContext context,
@@ -144,17 +135,6 @@ public class MockLeftTupleSink extends LeftTupleSource
         return NodeTypeEnums.RuleTerminalNode;
     }
 
-    public void modifyLeftTuple(InternalFactHandle factHandle,
-                                ModifyPreviousTuples modifyPreviousTuples,
-                                PropagationContext context,
-                                InternalWorkingMemory workingMemory) {
-    }
-
-    public void modifyLeftTuple(LeftTuple leftTuple,
-                                PropagationContext context,
-                                InternalWorkingMemory workingMemory) {
-    }
-    
     public LeftTuple createLeftTuple(InternalFactHandle factHandle,
                                      Sink sink,
                                      boolean leftTupleMemoryEnabled) {
@@ -198,7 +178,7 @@ public class MockLeftTupleSink extends LeftTupleSource
     }
 
     @Override
-    protected ObjectTypeNode getObjectTypeNode() {
+    public ObjectTypeNode getObjectTypeNode() {
         return null;
     }
 

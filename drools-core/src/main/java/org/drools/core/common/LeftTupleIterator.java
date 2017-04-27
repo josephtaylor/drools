@@ -76,7 +76,7 @@ public class LeftTupleIterator
     public LeftTuple getFirstLeftTuple(LeftTupleSource source,
                                        LeftTupleSink sink,
                                        InternalWorkingMemory wm) {
-        if ( wm.getKnowledgeBase().getConfiguration().isPhreakEnabled() && source instanceof AccumulateNode ) {
+        if ( source instanceof AccumulateNode ) {
             AccumulateMemory accmem = (AccumulateMemory) wm.getNodeMemory( (MemoryFactory) source );
             BetaMemory memory = accmem.getBetaMemory();
             
@@ -141,10 +141,9 @@ public class LeftTupleIterator
 
             while (otnIterator.hasNext()) {
                 InternalFactHandle handle = otnIterator.next();
-                for ( LeftTuple leftTuple = handle.getFirstLeftTuple(); leftTuple != null; leftTuple = leftTuple.getHandleNext() ) {
-                    if ( leftTuple.getTupleSink() == sink ) {
-                        return leftTuple;
-                    }
+                LeftTuple leftTuple = handle.findFirstLeftTuple( lt -> lt.getTupleSink() == sink );
+                if ( leftTuple != null ) {
+                    return leftTuple;
                 }
             }
         } else if ( source instanceof EvalConditionNode || source instanceof QueryElementNode ) {
@@ -211,16 +210,15 @@ public class LeftTupleIterator
             // We have exhausted the current FactHandle, now try the next
             while ( otnIterator.hasNext() ) {
                 InternalFactHandle handle = otnIterator.next();
-                for ( leftTuple = handle.getFirstLeftTuple(); leftTuple != null; leftTuple = leftTuple.getHandleNext() ) {
-                    if ( leftTuple.getTupleSink() == sink ) {
-                        return leftTuple;
-                    }
+                leftTuple = handle.findFirstLeftTuple( lt -> lt.getTupleSink() == sink );
+                if ( leftTuple != null ) {
+                    return leftTuple;
                 }
             }
             // We've exhausted this OTN so set the iterator to null
             otnIterator = null;
 
-        } else if ( wm.getKnowledgeBase().getConfiguration().isPhreakEnabled() && source instanceof AccumulateNode ) {
+        } else if ( source instanceof AccumulateNode ) {
             // when using phreak, accumulate result tuples will not link to leftParent, but to parent instead 
             BetaMemory memory = ((AccumulateMemory) wm.getNodeMemory( (MemoryFactory) source )).getBetaMemory();
             FastIterator localIt = memory.getLeftTupleMemory().fullFastIterator( leftTuple.getParent() );

@@ -16,10 +16,34 @@
 
 package org.drools.core.impl;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.Externalizable;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutput;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
 import org.drools.core.RuleBaseConfiguration;
 import org.drools.core.SessionConfiguration;
 import org.drools.core.base.ClassFieldAccessorCache;
 import org.drools.core.base.ClassObjectType;
+import org.drools.core.common.BaseNode;
 import org.drools.core.common.DefaultFactHandle;
 import org.drools.core.common.DroolsObjectInput;
 import org.drools.core.common.DroolsObjectInputStream;
@@ -36,14 +60,20 @@ import org.drools.core.event.KieBaseEventSupport;
 import org.drools.core.factmodel.ClassDefinition;
 import org.drools.core.factmodel.traits.TraitRegistry;
 import org.drools.core.management.DroolsManagementAgent;
+import org.drools.core.reteoo.BetaNode;
+import org.drools.core.reteoo.CompositePartitionAwareObjectSinkAdapter;
 import org.drools.core.reteoo.EntryPointNode;
 import org.drools.core.reteoo.KieComponentFactory;
 import org.drools.core.reteoo.LeftTupleNode;
 import org.drools.core.reteoo.LeftTupleSource;
+import org.drools.core.reteoo.ObjectSinkPropagator;
+import org.drools.core.reteoo.ObjectSource;
 import org.drools.core.reteoo.ObjectTypeNode;
 import org.drools.core.reteoo.Rete;
 import org.drools.core.reteoo.ReteooBuilder;
+import org.drools.core.reteoo.RightInputAdapterNode;
 import org.drools.core.reteoo.SegmentMemory;
+import org.drools.core.reteoo.Sink;
 import org.drools.core.reteoo.builder.BuildContext;
 import org.drools.core.reteoo.builder.NodeFactory;
 import org.drools.core.rule.DialectRuntimeRegistry;
@@ -54,14 +84,17 @@ import org.drools.core.rule.InvalidPatternException;
 import org.drools.core.rule.JavaDialectRuntimeData;
 import org.drools.core.rule.TypeDeclaration;
 import org.drools.core.rule.WindowDeclaration;
+import org.drools.core.ruleunit.RuleUnitRegistry;
 import org.drools.core.spi.FactHandleFactory;
 import org.drools.core.spi.PropagationContext;
 import org.drools.core.util.TripleStore;
+import org.kie.api.builder.ReleaseId;
 import org.kie.api.conf.EventProcessingOption;
 import org.kie.api.definition.KiePackage;
 import org.kie.api.definition.process.Process;
 import org.kie.api.definition.rule.Query;
 import org.kie.api.definition.rule.Rule;
+import org.kie.api.definition.type.Expires.Policy;
 import org.kie.api.definition.type.FactType;
 import org.kie.api.definition.type.Role;
 import org.kie.api.event.kiebase.BeforeRuleRemovedEvent;
@@ -85,29 +118,6 @@ import org.kie.internal.weaver.KieWeaverService;
 import org.kie.internal.weaver.KieWeavers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.Externalizable;
-import java.io.IOException;
-import java.io.ObjectInput;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutput;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Queue;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static org.drools.core.common.ProjectClassLoader.createProjectClassLoader;
 import static org.drools.core.util.BitMaskUtil.isSet;
@@ -158,8 +168,6 @@ public class KnowledgeBaseImpl
 
     private transient Map<String, TypeDeclaration> classTypeDeclaration;
 
-    private List<RuleBasePartitionId> partitionIDs;
-
     private ClassFieldAccessorCache classFieldAccessorCache;
     /** The root Rete-OO for this <code>RuleBase</code>. */
     private transient Rete rete;
@@ -177,7 +185,14 @@ public class KnowledgeBaseImpl
 
     private transient Queue<Runnable> kbaseModificationsQueue = new ConcurrentLinkedQueue<Runnable>();
 
+
     private transient AtomicInteger sessionDeactivationsCounter = new AtomicInteger();
+
+	private ReleaseId resolvedReleaseId;
+	private String containerId;
+	private AtomicBoolean mbeanRegistered = new AtomicBoolean(false);
+
+    private RuleUnitRegistry ruleUnitRegistry = new RuleUnitRegistry();
 
     public KnowledgeBaseImpl() { }
 
@@ -185,12 +200,6 @@ public class KnowledgeBaseImpl
                              final RuleBaseConfiguration config) {
         this.config = (config != null) ? config : new RuleBaseConfiguration();
         this.config.makeImmutable();
-
-        if ( this.config.isPhreakEnabled() ) {
-            logger.debug("Starting Engine in PHREAK mode");
-        } else {
-            logger.debug("Starting Engine in RETEOO mode");
-        }
 
         createRulebaseId(id);
 
@@ -201,7 +210,6 @@ public class KnowledgeBaseImpl
         this.globals = new HashMap<String, Class<?>>();
 
         this.classTypeDeclaration = new HashMap<String, TypeDeclaration>();
-        this.partitionIDs = new CopyOnWriteArrayList<RuleBasePartitionId>();
 
         this.classFieldAccessorCache = new ClassFieldAccessorCache(this.rootClassLoader);
         kieComponentFactory = getConfiguration().getComponentFactory();
@@ -211,18 +219,19 @@ public class KnowledgeBaseImpl
         kieComponentFactory.getTripleStore().setId(id);
 
         setupRete();
-        if (config != null && config.isMBeansEnabled()) {
-            DroolsManagementAgent.getInstance().registerKnowledgeBase(this);
-        }
 
         if ( this.config.getSessionCacheOption().isEnabled() ) {
-            if ( this.config.isPhreakEnabled() ) {
-                sessionsCache = new SessionsCache(this.config.getSessionCacheOption().isAsync());
-            } else {
-                logger.warn("Session cache can be enabled only in PHREAK mode");
-            }
+            sessionsCache = new SessionsCache(this.config.getSessionCacheOption().isAsync());
         }
     }
+
+    @Override
+	public void initMBeans() {
+		if (config != null && config.isMBeansEnabled() && mbeanRegistered.compareAndSet(false, true)) {
+		    // no further synch enforced at this point, even if other threads might not immediately see (yet) the MBean registered on JMX.
+            DroolsManagementAgent.getInstance().registerKnowledgeBase(this);
+        }
+	}
 
     public int nextWorkingMemoryCounter() {
         return this.workingMemoryCounter.getAndIncrement();
@@ -266,11 +275,7 @@ public class KnowledgeBaseImpl
     }
 
     public void addKnowledgePackages(Collection<KnowledgePackage> knowledgePackages) {
-        List<InternalKnowledgePackage> list = new ArrayList<InternalKnowledgePackage>();
-        for ( KnowledgePackage knowledgePackage : knowledgePackages ) {
-            list.add( (InternalKnowledgePackage) knowledgePackage );
-        }
-        addPackages(list);
+        addPackages((Collection<InternalKnowledgePackage>)(Collection<?>) knowledgePackages);
     }
 
     public Collection<KnowledgePackage> getKnowledgePackages() {
@@ -484,20 +489,55 @@ public class KnowledgeBaseImpl
         Map<String, String> globs = (Map<String, String>) droolsStream.readObject();
         populateGlobalsMap(globs);
 
-        this.partitionIDs = (List<RuleBasePartitionId>) droolsStream.readObject();
-
         this.eventSupport = (KieBaseEventSupport) droolsStream.readObject();
         this.eventSupport.setKnowledgeBase(this);
 
         this.reteooBuilder = (ReteooBuilder) droolsStream.readObject();
         this.reteooBuilder.setRuleBase(this);
         this.rete = (Rete) droolsStream.readObject();
+        
+        this.resolvedReleaseId = (ReleaseId) droolsStream.readObject();
+
+        ( (DroolsObjectInputStream) droolsStream ).bindAllExtractors(this);
 
         if (!isDrools) {
             droolsStream.close();
         }
 
         this.getConfiguration().getComponentFactory().getTraitFactory().setRuleBase(this);
+
+        rewireReteAfterDeserialization();
+    }
+
+    private void rewireReteAfterDeserialization() {
+        for (EntryPointNode entryPointNode : rete.getEntryPointNodes().values()) {
+            entryPointNode.setParentObjectSource( rete );
+            rewireNodeAfterDeserialization( entryPointNode );
+        }
+    }
+
+    private void rewireNodeAfterDeserialization(BaseNode node) {
+        Sink[] sinks = node.getSinks();
+        if (sinks != null) {
+            for (Sink sink : sinks) {
+                if (sink instanceof ObjectSource) {
+                    if (node instanceof ObjectSource) {
+                        ( (ObjectSource) sink ).setParentObjectSource( (ObjectSource) node );
+                    } else if (sink instanceof RightInputAdapterNode ) {
+                        ( (RightInputAdapterNode) sink ).setTupleSource( (LeftTupleSource) node );
+                    }
+                } else if (sink instanceof LeftTupleSource) {
+                    if (node instanceof LeftTupleSource) {
+                        ( (LeftTupleSource) sink ).setLeftTupleSource( (LeftTupleSource) node );
+                    } else if (sink instanceof BetaNode ) {
+                        ( (BetaNode) sink ).setRightInput( (ObjectSource) node );
+                    }
+                }
+                if (sink instanceof BaseNode) {
+                    rewireNodeAfterDeserialization((BaseNode)sink);
+                }
+            }
+        }
     }
 
     /**
@@ -533,13 +573,14 @@ public class KnowledgeBaseImpl
         droolsStream.writeObject(this.processes);
         droolsStream.writeUTF(this.factHandleFactory.getClass().getName());
         droolsStream.writeObject(buildGlobalMapForSerialization());
-        droolsStream.writeObject(this.partitionIDs);
 
         this.eventSupport.removeEventListener(KieBaseEventListener.class);
         droolsStream.writeObject(this.eventSupport);
 
         droolsStream.writeObject(this.reteooBuilder);
         droolsStream.writeObject(this.rete);
+        
+        droolsStream.writeObject(this.resolvedReleaseId);
 
         if (!isDrools) {
             droolsStream.flush();
@@ -548,7 +589,6 @@ public class KnowledgeBaseImpl
             out.writeObject(bytes.toByteArray());
         }
     }
-
 
     private Map<String, String> buildGlobalMapForSerialization() {
         Map<String, String> gl = new HashMap<String, String>();
@@ -875,8 +915,7 @@ public class KnowledgeBaseImpl
 
                 for ( Function function : newPkg.getFunctions().values() ) {
                     String functionClassName = function.getClassName();
-                    byte [] def = runtime.getStore().get(convertClassToResourcePath(functionClassName));
-                    registerAndLoadTypeDefinition( functionClassName, def );
+                    registerFunctionClassAndInnerClasses( functionClassName, runtime, this::registerAndLoadTypeDefinition );
                 }
             } catch (ClassNotFoundException e) {
                 throw new RuntimeException( "unable to resolve Type Declaration class '" + lastType + "'", e );
@@ -910,8 +949,7 @@ public class KnowledgeBaseImpl
 
             // add the window declarations to the kbase
             for( WindowDeclaration window : newPkg.getWindowDeclarations().values() ) {
-                addWindowDeclaration( newPkg,
-                                      window );
+                addWindowDeclaration( window );
             }
 
             // add entry points to the kbase
@@ -920,8 +958,10 @@ public class KnowledgeBaseImpl
             }
 
             // add the rules to the RuleBase
-            for ( Rule rule : newPkg.getRules() ) {
-                addRule( newPkg, (RuleImpl)rule );
+            for ( Rule r : newPkg.getRules() ) {
+                RuleImpl rule = (RuleImpl)r;
+                checkMultithreadedEvaluation( rule );
+                addRule( newPkg, rule );
             }
 
             // add the flows to the RuleBase
@@ -942,7 +982,79 @@ public class KnowledgeBaseImpl
                 }
             }
 
+            ruleUnitRegistry.add(newPkg.getRuleUnitRegistry());
+
             this.eventSupport.fireAfterPackageAdded( newPkg );
+        }
+
+        if (config.isMultithreadEvaluation() && !hasMultiplePartitions()) {
+            disableMultithreadEvaluation("The rete network cannot be partitioned: disabling multithread evaluation");
+        }
+    }
+
+    private void checkMultithreadedEvaluation( RuleImpl rule ) {
+        if (config.isMultithreadEvaluation()) {
+            if (!rule.isMainAgendaGroup()) {
+                disableMultithreadEvaluation( "Agenda-groups are not supported with multithread evaluation: disabling it" );
+            } else if (rule.getActivationGroup() != null) {
+                disableMultithreadEvaluation( "Activation-groups are not supported with multithread evaluation: disabling it" );
+            } else if (!rule.getSalience().isDefault()) {
+                disableMultithreadEvaluation( "Salience is not supported with multithread evaluation: disabling it" );
+            } else if (rule.isQuery()) {
+                disableMultithreadEvaluation( "Queries are not supported with multithread evaluation: disabling it" );
+            }
+        }
+    }
+
+    private boolean hasMultiplePartitions() {
+        for (EntryPointNode entryPointNode : rete.getEntryPointNodes().values()) {
+            for ( ObjectTypeNode otn : entryPointNode.getObjectTypeNodes().values() ) {
+                ObjectSinkPropagator sink = otn.getObjectSinkPropagator();
+                if (sink instanceof CompositePartitionAwareObjectSinkAdapter && ( (CompositePartitionAwareObjectSinkAdapter) sink ).getUsedPartitionsCount() > 1) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void disableMultithreadEvaluation(String warningMessage) {
+        config.enforceSingleThreadEvaluation();
+        logger.warn( warningMessage );
+        for (EntryPointNode entryPointNode : rete.getEntryPointNodes().values()) {
+            entryPointNode.setPartitionsEnabled( false );
+            for (ObjectTypeNode otn : entryPointNode.getObjectTypeNodes().values()) {
+                ObjectSinkPropagator sink = otn.getObjectSinkPropagator();
+                if (sink instanceof CompositePartitionAwareObjectSinkAdapter) {
+                    otn.setObjectSinkPropagator( ( (CompositePartitionAwareObjectSinkAdapter) sink )
+                                                         .asNonPartitionedSinkPropagator( config.getAlphaNodeHashingThreshold() ) );
+                }
+            }
+        }
+    }
+
+    public interface ClassRegister {
+        void register(String name, byte[] bytes) throws ClassNotFoundException;
+    }
+
+    public static void registerFunctionClassAndInnerClasses( String functionClassName, JavaDialectRuntimeData runtime, ClassRegister consumer ) throws ClassNotFoundException {
+        String className = convertClassToResourcePath(functionClassName);
+        String innerClassName = className.substring( 0, className.length() - ".class".length() ) + "$";
+        for (Map.Entry<String, byte[]> entry : runtime.getStore().entrySet()) {
+            if (entry.getKey().equals( className )) {
+                consumer.register( functionClassName, entry.getValue() );
+            } else if (entry.getKey().startsWith( innerClassName )) {
+                String innerName = functionClassName + entry.getKey().substring( functionClassName.length(), entry.getKey().length() - ".class".length() );
+                consumer.register( innerName, entry.getValue() );
+            }
+        }
+    }
+
+    public void registerTypeDeclaration( TypeDeclaration newDecl, InternalKnowledgePackage newPkg ) {
+        try {
+            processTypeDeclaration( newDecl, newPkg );
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException( "unable to resolve Type Declaration class '" + newDecl.getTypeClassName() + "'", e );
         }
     }
 
@@ -978,8 +1090,7 @@ public class KnowledgeBaseImpl
         }
 
         // update existing OTNs
-        updateDependentTypes( newPkg,
-                              typeDeclaration );
+        updateDependentTypes( typeDeclaration );
     }
 
     public Class<?> registerAndLoadTypeDefinition( String className, byte[] def ) throws ClassNotFoundException {
@@ -993,8 +1104,7 @@ public class KnowledgeBaseImpl
         }
     }
 
-    protected void updateDependentTypes( InternalKnowledgePackage newPkg,
-                                         TypeDeclaration typeDeclaration ) {
+    private void updateDependentTypes( TypeDeclaration typeDeclaration ) {
         // update OTNs
         if( this.getConfiguration().getEventProcessingMode().equals( EventProcessingOption.STREAM ) ) {
             // if the expiration for the type was set, then add 1, otherwise return -1
@@ -1048,8 +1158,18 @@ public class KnowledgeBaseImpl
                                                     true,
                                                     false) );
 
-        existingDecl.setExpirationOffset( Math.max( existingDecl.getExpirationOffset(),
-                                                    newDecl.getExpirationOffset() ) );
+        if ( newDecl.getExpirationPolicy() == Policy.TIME_HARD ) {
+            if (existingDecl.getExpirationPolicy() == Policy.TIME_SOFT ||
+                newDecl.getExpirationOffset() > existingDecl.getExpirationOffset()) {
+                existingDecl.setExpirationOffset( newDecl.getExpirationOffset() );
+                existingDecl.setExpirationType( Policy.TIME_HARD );
+            }
+        } else {
+            if (existingDecl.getExpirationPolicy() == Policy.TIME_SOFT &&
+                newDecl.getExpirationOffset() > existingDecl.getExpirationOffset()) {
+                existingDecl.setExpirationOffset( newDecl.getExpirationOffset() );
+            }
+        }
 
         if ( newDecl.getNature().equals( TypeDeclaration.Nature.DEFINITION ) && newDecl.isNovel() ) {
             // At this point, the definitions must be equivalent.
@@ -1103,9 +1223,9 @@ public class KnowledgeBaseImpl
                              boolean override ) {
         T newValue = leftVal;
         if ( ! areNullSafeEquals( leftVal, rightVal ) ) {
-            if ( leftVal == null && rightVal != null ) {
+            if ( leftVal == null ) {
                 newValue = rightVal;
-            } else if ( leftVal != null && rightVal != null ) {
+            } else if ( rightVal != null ) {
                 if ( override ) {
                     newValue = rightVal;
                 } else {
@@ -1200,12 +1320,19 @@ public class KnowledgeBaseImpl
 
         //Merge rules into the RuleBase package
         //as this is needed for individual rule removal later on
+        List<RuleImpl> rulesToBeRemoved = new ArrayList<RuleImpl>();
         for (Rule newRule : newPkg.getRules()) {
             // remove the rule if it already exists
-            if (pkg.getRule(newRule.getName()) != null) {
-                removeRule( pkg, pkg.getRule(newRule.getName()) );
+            RuleImpl oldRule = pkg.getRule(newRule.getName());
+            if (oldRule != null) {
+                rulesToBeRemoved.add(oldRule);
             }
+        }
+        if (!rulesToBeRemoved.isEmpty()) {
+            removeRules( pkg, rulesToBeRemoved );
+        }
 
+        for (Rule newRule : newPkg.getRules()) {
             pkg.addRule((RuleImpl)newRule);
         }
 
@@ -1252,10 +1379,11 @@ public class KnowledgeBaseImpl
                                                              EntryPointId.DEFAULT);
         epn.attach();
 
-        BuildContext context = new BuildContext(this, reteooBuilder.getIdGenerator());
+        BuildContext context = new BuildContext(this);
         context.setCurrentEntryPoint(epn.getEntryPoint());
         context.setTupleMemoryEnabled(true);
         context.setObjectTypeNodeMemoryEnabled(true);
+        context.setPartitionId(RuleBasePartitionId.MAIN_PARTITION);
 
         ObjectTypeNode otn = nodeFactory.buildObjectTypeNode(this.reteooBuilder.getIdGenerator().getNextId(),
                                                              epn,
@@ -1436,6 +1564,11 @@ public class KnowledgeBaseImpl
         return this.reteooBuilder.getIdGenerator().getLastId() + 1;
     }
 
+    public int getMemoryCount(String topic) {
+        // may start in 0
+        return this.reteooBuilder.getIdGenerator().getLastId(topic) + 1;
+    }
+
     public void addPackages(InternalKnowledgePackage[] pkgs) {
         addPackages( Arrays.asList(pkgs) );
     }
@@ -1474,8 +1607,16 @@ public class KnowledgeBaseImpl
         public int             score     = Integer.MAX_VALUE;
     }
 
+    public TypeDeclaration getExactTypeDeclaration( Class<?> clazz ) {
+        return this.classTypeDeclaration.get( clazz.getName() );
+    }
+
+    public TypeDeclaration getOrCreateExactTypeDeclaration( Class<?> clazz ) {
+        return this.classTypeDeclaration.computeIfAbsent( clazz.getName(), c -> new TypeDeclaration( clazz ) );
+    }
+
     public TypeDeclaration getTypeDeclaration( Class<?> clazz ) {
-        TypeDeclaration typeDeclaration = this.classTypeDeclaration.get( clazz.getName() );
+        TypeDeclaration typeDeclaration = getExactTypeDeclaration( clazz );
         if (typeDeclaration == null) {
             // check super classes and keep a score of how up in the hierarchy is there a declaration
             TypeDeclarationCandidate candidate = checkSuperClasses( clazz );
@@ -1556,16 +1697,6 @@ public class KnowledgeBaseImpl
         }
     }
 
-    protected void addEntryPoint( final Package pkg,
-                                  final String id ) throws InvalidPatternException {
-        lock();
-        try {
-            addEntryPoint(id);
-        } finally {
-            unlock();
-        }
-    }
-
     protected void addRule(final RuleImpl rule) throws InvalidPatternException {
         // This adds the rule. ReteBuilder has a reference to the WorkingMemories and will propagate any existing facts.
         this.reteooBuilder.addRule(rule);
@@ -1576,17 +1707,7 @@ public class KnowledgeBaseImpl
         this.reteooBuilder.addEntryPoint(id);
     }
 
-    public void addWindowDeclaration( final InternalKnowledgePackage pkg,
-                                      final WindowDeclaration window ) throws InvalidPatternException {
-        lock();
-        try {
-            addWindowDeclaration( window);
-        } finally {
-            unlock();
-        }
-    }
-
-    protected void addWindowDeclaration(final WindowDeclaration window) throws InvalidPatternException {
+    private void addWindowDeclaration(final WindowDeclaration window) throws InvalidPatternException {
         // This adds the named window. ReteBuilder has a reference to the WorkingMemories and will propagate any existing facts.
         this.reteooBuilder.addNamedWindow(window);
     }
@@ -1627,7 +1748,6 @@ public class KnowledgeBaseImpl
     /**
      * Notify listeners and sub-classes about imminent removal of a rule from a package.
      */
-    // FIXME: removeTerminalNode(String, String) and removeTerminalNode(Package, Rule) do totally different things!
     public void removeRule( final InternalKnowledgePackage pkg,
                             final RuleImpl rule ) {
         enqueueModification(new Runnable() {
@@ -1638,9 +1758,29 @@ public class KnowledgeBaseImpl
         });
     }
 
+    public void removeRules( final InternalKnowledgePackage pkg,
+                             final List<RuleImpl> rules ) {
+        enqueueModification(new Runnable() {
+            @Override
+            public void run() {
+                internalRemoveRules(pkg, rules);
+            }
+        });
+    }
+
+    private void internalRemoveRules(InternalKnowledgePackage pkg, List<RuleImpl> rules) {
+        for (RuleImpl rule : rules) {
+            this.eventSupport.fireBeforeRuleRemoved( pkg, rule );
+        }
+        this.reteooBuilder.removeRules(rules);
+        for (RuleImpl rule : rules) {
+            this.eventSupport.fireAfterRuleRemoved( pkg, rule );
+        }
+    }
+
     private void internalRemoveRule(InternalKnowledgePackage pkg, RuleImpl rule) {
         this.eventSupport.fireBeforeRuleRemoved(pkg, rule);
-        this.reteooBuilder.removeRule(rule);
+        this.reteooBuilder.removeRules(Collections.singletonList(rule));
         this.eventSupport.fireAfterRuleRemoved(pkg, rule);
     }
 
@@ -1683,7 +1823,6 @@ public class KnowledgeBaseImpl
      * event is fired, and before the function is physically removed from the package.
      *
      * This method is called with the rulebase lock held.
-     * @param functionName
      */
     protected/* abstract */void removeFunction( String functionName ) {
         // Nothing in default.
@@ -1780,31 +1919,7 @@ public class KnowledgeBaseImpl
     }
 
     public RuleBasePartitionId createNewPartitionId() {
-        RuleBasePartitionId p;
-        synchronized (this.partitionIDs) {
-            p = new RuleBasePartitionId( "P-" + this.partitionIDs.size() );
-            this.partitionIDs.add( p );
-        }
-        return p;
-    }
-
-    public List<RuleBasePartitionId> getPartitionIds() {
-        // this returns an unmodifiable CopyOnWriteArrayList, so should be safe for concurrency
-        return Collections.unmodifiableList( this.partitionIDs );
-    }
-
-    public boolean isEvent( Class<?> clazz ) {
-        readLock();
-        try {
-            for (InternalKnowledgePackage pkg : this.pkgs.values()) {
-                if (pkg.isEvent( clazz )) {
-                    return true;
-                }
-            }
-            return false;
-        } finally {
-            readUnlock();
-        }
+        return RuleBasePartitionId.createPartition();
     }
 
     public FactType getFactType(String packageName,
@@ -1855,20 +1970,51 @@ public class KnowledgeBaseImpl
         boolean modified = false;
         for (InternalKnowledgePackage pkg : pkgs.values()) {
             List<RuleImpl> rulesToBeRemoved = pkg.removeRulesGeneratedFromResource(resource);
-            for (RuleImpl rule : rulesToBeRemoved) {
-                this.reteooBuilder.removeRule(rule);
+            if (!rulesToBeRemoved.isEmpty()) {
+                this.reteooBuilder.removeRules( rulesToBeRemoved );
             }
+
             List<Function> functionsToBeRemoved = pkg.removeFunctionsGeneratedFromResource(resource);
             for (Function function : functionsToBeRemoved) {
                 removeFunction(function.getName());
             }
+
             List<Process> processesToBeRemoved = pkg.removeProcessesGeneratedFromResource(resource);
             for (Process process : processesToBeRemoved) {
                 processes.remove(process.getId());
             }
+
             List<TypeDeclaration> removedTypes = pkg.removeTypesGeneratedFromResource(resource);
             modified |= !rulesToBeRemoved.isEmpty() || !functionsToBeRemoved.isEmpty() || !processesToBeRemoved.isEmpty() || !removedTypes.isEmpty();
         }
         return modified;
+    }
+
+    @Override
+	public ReleaseId getResolvedReleaseId() {
+		return resolvedReleaseId;
+	}
+
+    @Override
+	public void setResolvedReleaseId(ReleaseId currentReleaseId) {
+		this.resolvedReleaseId = currentReleaseId;
+	}
+
+    @Override
+	public String getContainerId() {
+		return containerId;
+	}
+
+    @Override
+	public void setContainerId(String containerId) {
+		this.containerId = containerId;
+	}
+
+    public RuleUnitRegistry getRuleUnitRegistry() {
+        return ruleUnitRegistry;
+    }
+
+    public boolean hasUnits() {
+        return ruleUnitRegistry.hasUnits();
     }
 }

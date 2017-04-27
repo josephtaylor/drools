@@ -16,21 +16,21 @@
 
 package org.drools.core.command.runtime.rule;
 
-import org.drools.core.command.impl.GenericCommand;
-import org.drools.core.command.impl.KnowledgeCommandContext;
+import org.drools.core.command.impl.ExecutableCommand;
+import org.drools.core.command.impl.RegistryContext;
 import org.drools.core.common.InternalFactHandle;
 import org.kie.api.runtime.KieSession;
 import org.kie.api.runtime.ObjectFilter;
 import org.kie.api.runtime.rule.EntryPoint;
 import org.kie.api.runtime.rule.FactHandle;
-import org.kie.internal.command.Context;
+import org.kie.api.runtime.Context;
 
 import java.util.ArrayList;
 import java.util.Collection;
 
 public class GetFactHandlesInEntryPointCommand
     implements
-    GenericCommand<Collection<FactHandle>> {
+    ExecutableCommand<Collection<FactHandle>> {
 
     private ObjectFilter filter = null;
     private boolean      disconnected = false;
@@ -57,7 +57,7 @@ public class GetFactHandlesInEntryPointCommand
     }
 
     public Collection<FactHandle> execute(Context context) {
-        KieSession ksession = ((KnowledgeCommandContext) context).getKieSession();
+        KieSession ksession = ((RegistryContext) context).lookup( KieSession.class );
         EntryPoint ep = ksession.getEntryPoint(entryPoint);
 
         Collection<FactHandle> disconnectedFactHandles = new ArrayList<FactHandle>();

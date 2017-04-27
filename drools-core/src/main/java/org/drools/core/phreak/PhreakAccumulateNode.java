@@ -35,6 +35,8 @@ import org.drools.core.spi.PropagationContext;
 import org.drools.core.util.AbstractHashTable;
 import org.drools.core.util.FastIterator;
 
+import static org.drools.core.phreak.RuleNetworkEvaluator.normalizeStagedTuples;
+
 /**
 * Created with IntelliJ IDEA.
 * User: mdproctor
@@ -50,10 +52,8 @@ public class PhreakAccumulateNode {
                        TupleSets<LeftTuple> srcLeftTuples,
                        TupleSets<LeftTuple> trgLeftTuples,
                        TupleSets<LeftTuple> stagedLeftTuples) {
+
         BetaMemory bm = am.getBetaMemory();
-        if ( !bm.getStagedRightTuples().isEmpty() ) {
-            bm.setNodeDirtyWithoutNotify();
-        }
         TupleSets<RightTuple> srcRightTuples = bm.getStagedRightTuples().takeAll();
 
         // order of left and right operations is to minimise wasted of innefficient joins.
@@ -71,21 +71,13 @@ public class PhreakAccumulateNode {
             doRightDeletes(accNode, am, wm, srcRightTuples, tempLeftTuples);
         }
 
-        if (srcLeftTuples.getUpdateFirst() != null ) {
-            RuleNetworkEvaluator.doUpdatesReorderLeftMemory(am.getBetaMemory(),
-                                                            srcLeftTuples);
-        }
-
         if (srcRightTuples.getUpdateFirst() != null) {
-            RuleNetworkEvaluator.doUpdatesReorderRightMemory(am.getBetaMemory(),
-                                                             srcRightTuples);
-        }
-
-        if (srcRightTuples.getUpdateFirst() != null) {
+            RuleNetworkEvaluator.doUpdatesReorderRightMemory(bm, srcRightTuples);
             doRightUpdates(accNode, am, wm, srcRightTuples, tempLeftTuples);
         }
 
-        if (srcLeftTuples.getUpdateFirst() != null) {
+        if (srcLeftTuples.getUpdateFirst() != null ) {
+            RuleNetworkEvaluator.doUpdatesReorderLeftMemory(bm, srcLeftTuples);
             doLeftUpdates(accNode, am, wm, srcLeftTuples, tempLeftTuples);
         }
 
@@ -599,15 +591,7 @@ public class PhreakAccumulateNode {
                                                   false);
 
                 if (accctx.propagated) {
-                    switch (accctx.resultLeftTuple.getStagedType()) {
-                        // handle clash with already staged entries
-                        case LeftTuple.INSERT:
-                            stagedLeftTuples.removeInsert(accctx.resultLeftTuple);
-                            break;
-                        case LeftTuple.UPDATE:
-                            stagedLeftTuples.removeUpdate(accctx.resultLeftTuple);
-                            break;
-                    }
+                    normalizeStagedTuples( stagedLeftTuples, accctx.resultLeftTuple );
 
                     trgLeftTuples.addDelete(accctx.resultLeftTuple);
                 }
@@ -720,15 +704,7 @@ public class PhreakAccumulateNode {
         }
 
         if (accctx.propagated) {
-            switch (childLeftTuple.getStagedType()) {
-                // handle clash with already staged entries
-                case LeftTuple.INSERT:
-                    stagedLeftTuples.removeInsert(childLeftTuple);
-                    break;
-                case LeftTuple.UPDATE:
-                    stagedLeftTuples.removeUpdate(childLeftTuple);
-                    break;
-            }
+            normalizeStagedTuples( stagedLeftTuples, childLeftTuple );
 
             if (isAllowed) {
                 // modify
@@ -758,10 +734,15 @@ public class PhreakAccumulateNode {
                                  final boolean useLeftMemory) {
         LeftTuple tuple = leftTuple;
         InternalFactHandle handle = rightTuple.getFactHandle();
+
         if (accNode.isUnwrapRightObject()) {
             // if there is a subnetwork, handle must be unwrapped
             tuple = (LeftTuple) rightTuple;
             handle = rightTuple.getFactHandleForEvaluation();
+        }
+
+        if (handle.isExpired()) {
+            return;
         }
 
         accctx.setPropagationContext(rightTuple.getPropagationContext());

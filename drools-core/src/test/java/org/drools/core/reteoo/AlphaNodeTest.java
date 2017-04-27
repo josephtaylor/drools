@@ -37,8 +37,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.kie.internal.KnowledgeBaseFactory;
 
-import java.beans.IntrospectionException;
-
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 
@@ -55,15 +53,14 @@ public class AlphaNodeTest extends DroolsTestCase {
     @Test
     public void testLiteralConstraintAssertObjectWithoutMemory() throws Exception {
         InternalKnowledgeBase kBase = (InternalKnowledgeBase) KnowledgeBaseFactory.newKnowledgeBase();
-        BuildContext buildContext = new BuildContext( kBase,
-                                                      kBase.getReteooBuilder().getIdGenerator() );
+        BuildContext buildContext = new BuildContext( kBase );
         buildContext.setRule(new RuleImpl("test"));
 
         StatefulKnowledgeSessionImpl ksession = (StatefulKnowledgeSessionImpl)kBase.newStatefulKnowledgeSession();
 
         final RuleImpl rule = new RuleImpl( "test-rule" );
         PropagationContextFactory pctxFactory = kBase.getConfiguration().getComponentFactory().getPropagationContextFactory();
-        final PropagationContext context = pctxFactory.createPropagationContext(0, PropagationContext.INSERTION, null, null, null);
+        final PropagationContext context = pctxFactory.createPropagationContext(0, PropagationContext.Type.INSERTION, null, null, null);
 
         final MockObjectSource source = new MockObjectSource( buildContext.getNextId() );
 
@@ -127,15 +124,14 @@ public class AlphaNodeTest extends DroolsTestCase {
     @Test
     public void testReturnValueConstraintAssertObject() throws Exception {
         InternalKnowledgeBase kBase = (InternalKnowledgeBase) KnowledgeBaseFactory.newKnowledgeBase();
-        BuildContext buildContext = new BuildContext( kBase,
-                                                      kBase.getReteooBuilder().getIdGenerator() );
+        BuildContext buildContext = new BuildContext( kBase );
         buildContext.setRule(new RuleImpl("test"));
 
         StatefulKnowledgeSessionImpl ksession = (StatefulKnowledgeSessionImpl)kBase.newStatefulKnowledgeSession();
 
         final RuleImpl rule = new RuleImpl( "test-rule" );
         PropagationContextFactory pctxFactory = kBase.getConfiguration().getComponentFactory().getPropagationContextFactory();
-        final PropagationContext context = pctxFactory.createPropagationContext(0, PropagationContext.INSERTION, null, null, null);
+        final PropagationContext context = pctxFactory.createPropagationContext(0, PropagationContext.Type.INSERTION, null, null, null);
 
         final MockObjectSource source = new MockObjectSource( buildContext.getNextId() );
 
@@ -188,18 +184,17 @@ public class AlphaNodeTest extends DroolsTestCase {
     }
 
     @Test
-    public void testUpdateSinkWithoutMemory() throws IntrospectionException {
+    public void testUpdateSinkWithoutMemory() {
         // An AlphaNode should try and repropagate from its source
         InternalKnowledgeBase kBase = (InternalKnowledgeBase) KnowledgeBaseFactory.newKnowledgeBase();
-        BuildContext buildContext = new BuildContext( kBase,
-                                                      kBase.getReteooBuilder().getIdGenerator() );
+        BuildContext buildContext = new BuildContext( kBase );
         buildContext.setRule(new RuleImpl("test"));
 
         StatefulKnowledgeSessionImpl ksession = (StatefulKnowledgeSessionImpl)kBase.newStatefulKnowledgeSession();
 
         final RuleImpl rule = new RuleImpl( "test-rule" );
         PropagationContextFactory pctxFactory = kBase.getConfiguration().getComponentFactory().getPropagationContextFactory();
-        final PropagationContext context = pctxFactory.createPropagationContext(0, PropagationContext.INSERTION, null, null, null);
+        final PropagationContext context = pctxFactory.createPropagationContext(0, PropagationContext.Type.INSERTION, null, null, null);
 
         final MockObjectSource source = new MockObjectSource( buildContext.getNextId() );
 

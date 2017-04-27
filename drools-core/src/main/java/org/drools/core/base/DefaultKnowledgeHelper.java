@@ -16,7 +16,16 @@
 
 package org.drools.core.base;
 
+import java.io.Externalizable;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Map;
+
 import org.drools.core.WorkingMemory;
+import org.drools.core.WorkingMemoryEntryPoint;
 import org.drools.core.beliefsystem.BeliefSet;
 import org.drools.core.beliefsystem.BeliefSystem;
 import org.drools.core.beliefsystem.ModedAssertion;
@@ -27,7 +36,6 @@ import org.drools.core.common.EqualityKey;
 import org.drools.core.common.InternalAgenda;
 import org.drools.core.common.InternalFactHandle;
 import org.drools.core.common.InternalRuleFlowGroup;
-import org.drools.core.common.InternalWorkingMemoryActions;
 import org.drools.core.common.InternalWorkingMemoryEntryPoint;
 import org.drools.core.common.LogicalDependency;
 import org.drools.core.common.NamedEntryPoint;
@@ -37,7 +45,6 @@ import org.drools.core.factmodel.traits.CoreWrapper;
 import org.drools.core.factmodel.traits.Thing;
 import org.drools.core.factmodel.traits.TraitableBean;
 import org.drools.core.impl.InternalKnowledgeBase;
-import org.drools.core.impl.StatefulKnowledgeSessionImpl;
 import org.drools.core.phreak.RuleAgendaItem;
 import org.drools.core.reteoo.LeftTuple;
 import org.drools.core.reteoo.ObjectTypeConf;
@@ -60,16 +67,9 @@ import org.kie.api.runtime.process.WorkflowProcessInstance;
 import org.kie.api.runtime.rule.EntryPoint;
 import org.kie.api.runtime.rule.FactHandle;
 import org.kie.api.runtime.rule.Match;
+import org.kie.api.runtime.rule.RuleUnit;
 import org.kie.internal.runtime.KnowledgeRuntime;
 import org.kie.internal.runtime.beliefs.Mode;
-
-import java.io.Externalizable;
-import java.io.IOException;
-import java.io.ObjectInput;
-import java.io.ObjectOutput;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Map;
 
 import static org.drools.core.reteoo.PropertySpecificUtil.allSetButTraitBitMask;
 import static org.drools.core.reteoo.PropertySpecificUtil.onlyTraitBitSetMask;
@@ -83,22 +83,22 @@ public class DefaultKnowledgeHelper<T extends ModedAssertion<T>>
 
     private Activation                                activation;
     private Tuple                                     tuple;
-    private InternalWorkingMemoryActions              workingMemory;
+    private WrappedStatefulKnowledgeSessionForRHS     workingMemory;
 
     private LinkedList<LogicalDependency<T>>          previousJustified;
 
     private LinkedList<LogicalDependency<SimpleMode>> previousBlocked;
-
+    
     public DefaultKnowledgeHelper() {
 
     }
 
     public DefaultKnowledgeHelper(final WorkingMemory workingMemory) {
-        this.workingMemory = (InternalWorkingMemoryActions) workingMemory;
+        this.workingMemory = new WrappedStatefulKnowledgeSessionForRHS( workingMemory );
     }
 
     public DefaultKnowledgeHelper(Activation activation, final WorkingMemory workingMemory) {
-        this.workingMemory = (InternalWorkingMemoryActions) workingMemory;
+        this.workingMemory = new WrappedStatefulKnowledgeSessionForRHS( workingMemory );
         this.activation = activation;
     }
 
@@ -106,7 +106,7 @@ public class DefaultKnowledgeHelper<T extends ModedAssertion<T>>
                                             ClassNotFoundException {
         activation = (Activation) in.readObject();
         tuple = (LeftTuple) in.readObject();
-        workingMemory = (InternalWorkingMemoryActions) in.readObject();
+        workingMemory = (WrappedStatefulKnowledgeSessionForRHS) in.readObject();
     }
 
     public void writeExternal(ObjectOutput out) throws IOException {
@@ -194,6 +194,10 @@ public class DefaultKnowledgeHelper<T extends ModedAssertion<T>>
         }
     }
 
+    public FactHandle insertAsync( final Object object ) {
+        return this.workingMemory.insertAsync( object );
+    }
+
     public InternalFactHandle insert(final Object object) {
         return insert( object,
                        false );
@@ -202,9 +206,7 @@ public class DefaultKnowledgeHelper<T extends ModedAssertion<T>>
     public InternalFactHandle insert(final Object object,
                                      final boolean dynamic) {
         return (InternalFactHandle) this.workingMemory.insert( object,
-                                                               null,
                                                                dynamic,
-                                                               false,
                                                                this.activation.getRule(),
                                                                this.activation );
     }
@@ -396,11 +398,22 @@ public class DefaultKnowledgeHelper<T extends ModedAssertion<T>>
 
     public void update( final FactHandle handle, BitMask mask, Class<?> modifiedClass ) {
         InternalFactHandle h = (InternalFactHandle) handle;
-        ((NamedEntryPoint) h.getEntryPoint()).update( h,
-                                                      ((InternalFactHandle)handle).getObject(),
-                                                      mask,
-                                                      modifiedClass,
-                                                      this.activation );
+
+        if (h.getDataSource() != null) {
+            // This handle has been insert from a datasource, so update it
+            h.getDataSource().update( h,
+                                      ((InternalFactHandle)handle).getObject(),
+                                      mask,
+                                      modifiedClass,
+                                      this.activation );
+            return;
+        }
+
+        ((InternalWorkingMemoryEntryPoint) h.getEntryPoint()).update( h,
+                                                                      ((InternalFactHandle)handle).getObject(),
+                                                                      mask,
+                                                                      modifiedClass,
+                                                                      this.activation );
         if ( h.isTraitOrTraitable() ) {
             workingMemory.updateTraits( h, mask, modifiedClass, this.activation );
         }
@@ -460,7 +473,7 @@ public class DefaultKnowledgeHelper<T extends ModedAssertion<T>>
     }
 
     public KnowledgeRuntime getKnowledgeRuntime() {
-        return (StatefulKnowledgeSessionImpl) this.workingMemory;
+        return this.workingMemory;
     }
 
     public Activation getMatch() {
@@ -472,7 +485,7 @@ public class DefaultKnowledgeHelper<T extends ModedAssertion<T>>
     }
 
     public Object get(final Declaration declaration) {
-        InternalWorkingMemoryEntryPoint wmTmp = (this.tuple.get( declaration )).getEntryPoint();
+        WorkingMemoryEntryPoint wmTmp = (this.tuple.get( declaration )).getEntryPoint();
         return wmTmp != null ?
                declaration.getValue( wmTmp.getInternalWorkingMemory(),
                                                      this.tuple.getObject( declaration ) )
@@ -613,5 +626,21 @@ public class DefaultKnowledgeHelper<T extends ModedAssertion<T>>
 
     public ClassLoader getProjectClassLoader() {
         return ((InternalKnowledgeBase)getKieRuntime().getKieBase()).getRootClassLoader();
+    }
+
+    public void run(RuleUnit ruleUnit ) {
+        workingMemory.switchToRuleUnit( ruleUnit );
+    }
+
+    public void run(Class<? extends RuleUnit> ruleUnitClass) {
+        workingMemory.switchToRuleUnit( ruleUnitClass );
+    }
+
+    public void guard(RuleUnit ruleUnit) {
+        workingMemory.guardRuleUnit( ruleUnit, activation );
+    }
+
+    public void guard(Class<? extends RuleUnit> ruleUnitClass) {
+        workingMemory.guardRuleUnit( ruleUnitClass, activation );
     }
 }

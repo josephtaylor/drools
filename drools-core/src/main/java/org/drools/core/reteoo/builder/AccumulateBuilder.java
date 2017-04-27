@@ -16,20 +16,22 @@
 
 package org.drools.core.reteoo.builder;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import org.drools.core.common.BetaConstraints;
 import org.drools.core.common.TupleStartEqualsConstraint;
 import org.drools.core.reteoo.AccumulateNode;
 import org.drools.core.reteoo.LeftTupleSource;
-import org.drools.core.reteoo.ObjectSource;
-import org.drools.core.reteoo.QueryRiaFixerNode;
 import org.drools.core.reteoo.RightInputAdapterNode;
 import org.drools.core.rule.Accumulate;
 import org.drools.core.rule.GroupElement;
 import org.drools.core.rule.RuleConditionElement;
 import org.drools.core.spi.AlphaNodeFieldConstraint;
+import org.drools.core.spi.BetaNodeFieldConstraint;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class AccumulateBuilder
         implements
@@ -45,14 +47,14 @@ public class AccumulateBuilder
         boolean existSubNetwort = false;
         context.pushRuleComponent( accumulate );
 
-        final List resultBetaConstraints = context.getBetaconstraints();
-        final List resultAlphaConstraints = context.getAlphaConstraints();
+        final List<BetaNodeFieldConstraint> resultBetaConstraints = context.getBetaconstraints();
+        final List<AlphaNodeFieldConstraint> resultAlphaConstraints = context.getAlphaConstraints();
 
         RuleConditionElement source = accumulate.getSource();
         if( source instanceof GroupElement ) {
             GroupElement ge = (GroupElement) source;
             if( ge.isAnd() && ge.getChildren().size() == 1 ) {
-                source = (RuleConditionElement) ge.getChildren().get( 0 );
+                source = ge.getChildren().get( 0 );
             }
         }
 
@@ -77,26 +79,20 @@ public class AccumulateBuilder
                                                                                                                        context );
 
             // attach right input adapter node to convert tuple source into an object source
-            context.setObjectSource( (ObjectSource) utils.attachNode( context,
-                                                                      riaNode ) );
+            context.setObjectSource( utils.attachNode( context, riaNode ) );
 
             // restore tuple source from before the start of the sub network
             context.setTupleSource( tupleSource );
 
             // create a tuple start equals constraint and set it in the context
             final TupleStartEqualsConstraint constraint = TupleStartEqualsConstraint.getInstance();
-            final List betaConstraints = new ArrayList();
+            final List<BetaNodeFieldConstraint> betaConstraints = new ArrayList<BetaNodeFieldConstraint>();
             betaConstraints.add( constraint );
             context.setBetaconstraints( betaConstraints );
             existSubNetwort = true;
         }
 
         NodeFactory nfactory = context.getComponentFactory().getNodeFactoryService();
-
-        if ( !context.getKnowledgeBase().getConfiguration().isPhreakEnabled() && !context.isTupleMemoryEnabled() && existSubNetwort ) {
-            // If there is a RIANode, so need to handle. This only happens with queries, so need to worry about sharing
-            context.setTupleSource( (LeftTupleSource) utils.attachNode( context, nfactory.buildQueryRiaFixerNode( context.getNextId(), context.getTupleSource(), context ) ) );
-        }
 
         final BetaConstraints resultsBinder = utils.createBetaNodeConstraint( context,
                                                                               resultBetaConstraints,
@@ -108,15 +104,14 @@ public class AccumulateBuilder
         AccumulateNode accNode = nfactory.buildAccumulateNode(context.getNextId(),
                                                               context.getTupleSource(),
                                                               context.getObjectSource(),
-                                                              (AlphaNodeFieldConstraint[]) resultAlphaConstraints.toArray(new AlphaNodeFieldConstraint[resultAlphaConstraints.size()]),
+                                                              resultAlphaConstraints.toArray(new AlphaNodeFieldConstraint[resultAlphaConstraints.size()]),
                                                               sourceBinder,
                                                               resultsBinder,
                                                               accumulate,
                                                               existSubNetwort,
                                                               context);
 
-        context.setTupleSource( (LeftTupleSource) utils.attachNode( context,
-                                                                    accNode ) );
+        context.setTupleSource( utils.attachNode( context, accNode ) );
 
         // source pattern was bound, so nulling context
         context.setObjectSource( null );

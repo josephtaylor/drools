@@ -16,6 +16,10 @@
 
 package org.drools.core.spi;
 
+import java.io.Serializable;
+import java.util.Collections;
+import java.util.List;
+
 import org.drools.core.beliefsystem.ModedAssertion;
 import org.drools.core.beliefsystem.simple.SimpleMode;
 import org.drools.core.common.ActivationGroupNode;
@@ -27,8 +31,6 @@ import org.drools.core.definitions.rule.impl.RuleImpl;
 import org.drools.core.rule.GroupElement;
 import org.drools.core.util.LinkedList;
 import org.kie.api.runtime.rule.Match;
-
-import java.io.Serializable;
 
 /**
  * When a <code>Tuple</code> fully matches a rule it is added to the <code>Agenda</code>
@@ -128,10 +130,13 @@ public interface Activation<T extends ModedAssertion<T>>
 
     boolean isRuleAgendaItem();
 
-
     void setQueueIndex(int index);
 
     int getQueueIndex();
 
     void dequeue();
+
+    default List<Object> getObjectsDeep() {
+        return Collections.emptyList();
+    }
 }

@@ -16,6 +16,13 @@
 
 package org.drools.core.reteoo;
 
+import java.io.Externalizable;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import java.util.HashMap;
+import java.util.Map;
+
 import org.drools.core.RuleBaseConfiguration;
 import org.drools.core.common.InternalFactHandle;
 import org.drools.core.common.InternalWorkingMemory;
@@ -28,13 +35,6 @@ import org.drools.core.spi.PropagationContext;
 import org.drools.core.spi.RuleComponent;
 import org.drools.core.util.AbstractBaseLinkedListNode;
 import org.kie.api.definition.rule.Rule;
-
-import java.io.Externalizable;
-import java.io.IOException;
-import java.io.ObjectInput;
-import java.io.ObjectOutput;
-import java.util.HashMap;
-import java.util.Map;
 
 public class EvalConditionNode extends LeftTupleSource
     implements
@@ -110,16 +110,6 @@ public class EvalConditionNode extends LeftTupleSource
         return this.condition;
     }
     
-    public LeftTupleSource getLeftTupleSource() {
-        return this.leftInput;
-    }
-
-    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-    // org.kie.reteoo.impl.TupleSink
-    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-
-
     /**
      * Produce a debug string.
      *
@@ -286,7 +276,8 @@ public class EvalConditionNode extends LeftTupleSource
         public void reset() { }
     }
 
-    protected ObjectTypeNode getObjectTypeNode() {
+    @Override
+    public ObjectTypeNode getObjectTypeNode() {
         return leftInput.getObjectTypeNode();
     }
 
@@ -297,22 +288,6 @@ public class EvalConditionNode extends LeftTupleSource
 
     @Override
     public void retractLeftTuple(LeftTuple leftTuple, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void modifyLeftTuple(InternalFactHandle factHandle, ModifyPreviousTuples modifyPreviousTuples, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-
-    @Override
-    public void updateSink(LeftTupleSink sink, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void modifyLeftTuple(LeftTuple leftTuple, PropagationContext context, InternalWorkingMemory workingMemory) {
         throw new UnsupportedOperationException();
     }
 
@@ -331,15 +306,17 @@ public class EvalConditionNode extends LeftTupleSource
     }
 
     @Override
-    public void addAssociation( Rule rule, RuleComponent ruleComponent ) {
-        super.addAssociation(rule, ruleComponent);
-        componentsMap.put(rule, ruleComponent);
+    public void addAssociation( BuildContext context, Rule rule ) {
+        super.addAssociation(context, rule);
+        componentsMap.put(rule, context.peekRuleComponent());
     }
 
     @Override
     public boolean removeAssociation( Rule rule ) {
         boolean result = super.removeAssociation(rule);
-        componentsMap.remove(rule);
+        if (!isAssociatedWith( rule )) {
+            componentsMap.remove( rule );
+        }
         return result;
     }
 }

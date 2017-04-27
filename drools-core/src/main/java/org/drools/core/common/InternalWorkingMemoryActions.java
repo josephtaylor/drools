@@ -16,12 +16,13 @@
 
 package org.drools.core.common;
 
+import org.drools.core.WorkingMemoryEntryPoint;
 import org.drools.core.definitions.rule.impl.RuleImpl;
+import org.drools.core.factmodel.traits.Thing;
+import org.drools.core.factmodel.traits.TraitableBean;
 import org.drools.core.spi.Activation;
 import org.drools.core.util.bitmask.BitMask;
 import org.kie.api.runtime.rule.FactHandle;
-import org.drools.core.factmodel.traits.Thing;
-import org.drools.core.factmodel.traits.TraitableBean;
 import org.kie.internal.runtime.beliefs.Mode;
 
 import java.util.Collection;
@@ -29,23 +30,24 @@ import java.util.Collection;
 public interface InternalWorkingMemoryActions
         extends
         InternalWorkingMemory,
-        InternalWorkingMemoryEntryPoint {
-    public void update(FactHandle handle,
-                       Object object,
-                       BitMask mask,
-                       Class<?> modifiedClass,
-                       Activation activation);
+        WorkingMemoryEntryPoint {
 
-    public void delete(FactHandle handle,
-                       RuleImpl rule,
-                        Activation activation);
+    void update(FactHandle handle,
+                Object object,
+                BitMask mask,
+                Class<?> modifiedClass,
+                Activation activation);
+
+    void delete(FactHandle handle,
+                RuleImpl rule,
+                Activation activation);
 
     FactHandle insert(Object object,
-                                 Object value,
-                                 boolean dynamic,
-                                 boolean logical,
-                                 RuleImpl rule,
-                                 Activation activation);
+                      boolean dynamic,
+                      RuleImpl rule,
+                      Activation activation);
+
+    FactHandle insertAsync(Object object);
 
     void updateTraits( InternalFactHandle h, BitMask mask, Class<?> modifiedClass, Activation activation );
 

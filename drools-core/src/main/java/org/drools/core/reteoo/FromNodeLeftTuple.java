@@ -16,6 +16,11 @@
 
 package org.drools.core.reteoo;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+
+import org.drools.core.base.accumulators.JavaAccumulatorFunctionExecutor.JavaAccumulatorFunctionContext;
 import org.drools.core.common.InternalFactHandle;
 import org.drools.core.spi.PropagationContext;
 
@@ -78,5 +83,22 @@ public class FromNodeLeftTuple extends BaseLeftTuple {
                currentRightChild, 
                sink, 
                leftTupleMemoryEnabled );
+    }
+
+    @Override
+    public Collection<Object> getAccumulatedObjects() {
+        if (getContextObject() instanceof ContextOwner) {
+            Collection<Object> result = new ArrayList<>();
+            JavaAccumulatorFunctionContext accContext = ( (ContextOwner) getContextObject() ).getContext( JavaAccumulatorFunctionContext.class );
+            if (accContext != null) {
+                result.addAll( accContext.getAccumulatedObjects() );
+            }
+            if (getFirstChild() != null && getFirstChild().getRightParent() instanceof SubnetworkTuple) {
+                LeftTuple leftParent = ( (SubnetworkTuple) getFirstChild().getRightParent() ).getLeftParent();
+                result.addAll( leftParent.getAccumulatedObjects() );
+            }
+            return result;
+        }
+        return Collections.emptyList();
     }
 }

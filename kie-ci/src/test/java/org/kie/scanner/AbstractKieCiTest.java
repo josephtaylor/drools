@@ -130,13 +130,17 @@ public class AbstractKieCiTest {
     }
 
     protected KieFileSystem createKieFileSystemWithKProject(KieServices ks, boolean isdefault) {
+        return createKieFileSystemWithKProject(ks, isdefault, "KBase1", "KSession1");
+    }
+
+    protected KieFileSystem createKieFileSystemWithKProject(KieServices ks, boolean isdefault, String kbaseName, String ksessionName) {
         KieModuleModel kproj = ks.newKieModuleModel();
 
-        KieBaseModel kieBaseModel1 = kproj.newKieBaseModel("KBase1").setDefault(isdefault)
+        KieBaseModel kieBaseModel1 = kproj.newKieBaseModel(kbaseName).setDefault(isdefault)
                 .setEqualsBehavior(EqualityBehaviorOption.EQUALITY)
                 .setEventProcessingMode(EventProcessingOption.STREAM);
 
-        KieSessionModel ksession1 = kieBaseModel1.newKieSessionModel("KSession1").setDefault(isdefault)
+        KieSessionModel ksession1 = kieBaseModel1.newKieSessionModel(ksessionName).setDefault(isdefault)
                 .setType(KieSessionModel.KieSessionType.STATEFUL)
                 .setClockType(ClockTypeOption.get("realtime"));
 
@@ -213,7 +217,7 @@ public class AbstractKieCiTest {
                 "end\n";
     }
 
-    private String createJavaSource(int factor) {
+    protected String createJavaSource(int factor) {
         return "package org.kie.test;\n" +
                 "import org.kie.api.definition.type.Role;\n" +
                 "@Role(Role.Type.EVENT)\n" +
@@ -329,5 +333,23 @@ public class AbstractKieCiTest {
             assertTrue( String.format( "Expected to contain: %s, got: %s", result, Arrays.toString( list.toArray() ) ),
                         list.contains( result ) );
         }
+    }
+
+    protected boolean producesResults(KieSession ksession, Object... results) {
+        List<String> list = new ArrayList<>();
+        ksession.setGlobal("list", list);
+        ksession.fireAllRules();
+        ksession.dispose();
+
+        if (results.length != list.size()) {
+            return false;
+        }
+
+        for (Object result : results) {
+            if (!list.contains(result)) {
+                return false;
+            }
+        }
+        return true;
     }
 }

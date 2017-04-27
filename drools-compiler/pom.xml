@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
-  
+
   <modelVersion>4.0.0</modelVersion>
   <parent>
     <groupId>org.drools</groupId>
     <artifactId>drools</artifactId>
-    <version>7.0.0-SNAPSHOT</version>
+    <version>7.1.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>drools-compiler</artifactId>
@@ -16,6 +16,7 @@
 
   <properties>
     <osgi.Bundle-SymbolicName>org.drools.compiler</osgi.Bundle-SymbolicName>
+    <excludedGroups>org.drools.compiler.TurtleTestCategory</excludedGroups>
     <surefire.forkCount>2</surefire.forkCount>
   </properties>
 
@@ -89,12 +90,6 @@
     </dependency>
 
     <dependency>
-      <groupId>com.sun.codemodel</groupId>
-      <artifactId>codemodel</artifactId>
-      <scope>provided</scope>
-    </dependency>
-
-    <dependency>
       <groupId>com.sun.xml.bind</groupId>
       <artifactId>jaxb-xjc</artifactId>
       <scope>provided</scope>
@@ -151,44 +146,60 @@
       <artifactId>logback-classic</artifactId>
       <scope>test</scope>
     </dependency>
-
+    
+    <!-- Required for TestListener in maven-surefire-plugin. -->
     <dependency>
-      <groupId>javax.enterprise</groupId>
-      <artifactId>cdi-api</artifactId>
-      <scope>provided</scope><!-- HACK for OSGi: should be <optional>true</optional> instead -->
+      <groupId>org.kie</groupId>
+      <artifactId>kie-test-util</artifactId>
+      <scope>test</scope>
     </dependency>
     
-    <dependency><!-- It works in any CDI container, but the weld CDI container is used for testing -->
-      <groupId>org.jboss.weld.se</groupId>
-      <artifactId>weld-se-core</artifactId>
-      <scope>test</scope>
-    </dependency>
-         
-   <!-- test: byteman -->
-    <dependency>
-      <groupId>org.jboss.byteman</groupId>
-      <artifactId>byteman</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.jboss.byteman</groupId>
-      <artifactId>byteman-submit</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.jboss.byteman</groupId>
-      <artifactId>byteman-install</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.jboss.byteman</groupId>
-      <artifactId>byteman-bmunit</artifactId>
-      <scope>test</scope>
-    </dependency>
   </dependencies>
 
   <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>findbugs-maven-plugin</artifactId>
+          <configuration>
+            <excludeFilterFile>${project.basedir}/src/main/findbugs/findbugs-exclude.xml</excludeFilterFile>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.jacoco</groupId>
+          <artifactId>jacoco-maven-plugin</artifactId>
+          <executions>
+            <execution>
+              <id>default-instrument</id>
+              <goals>
+                <goal>instrument</goal>
+              </goals>
+              <configuration>
+                <excludes>
+                  <exclude>**/DRL5Lexer.class</exclude>
+                  <exclude>**/DRL6Lexer.class</exclude>
+                </excludes>
+              </configuration>
+            </execution>
+          </executions>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+    
     <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <properties>
+            <property>
+              <name>listener</name>
+              <value>org.kie.test.util.TestStatusListener</value>
+            </property>
+          </properties>
+        </configuration>
+      </plugin>
       <plugin>
         <groupId>org.apache.felix</groupId>
         <artifactId>maven-bundle-plugin</artifactId>
@@ -205,54 +216,39 @@
                    in ECJ directly to export the versions correctly in the MANIFEST.MF. -->
               org.eclipse.jdt.*;version="[0,1)";resolution:=optional,
               org.osgi.*;resolution:=optional,
+              org.drools.cdi;resolution:=optional,
+              org.drools.template.parser;resolution:=optional,
               org.jbpm.process.instance.impl;resolution:=optional,
+              org.kie.dmn.core.assembler;resolution:=optional,
+              org.kie.dmn.core.runtime;resolution:=optional,
+              org.kie.dmn.core.weaver;resolution:=optional,
+              org.kie.scanner;resolution:=optional,
               =org.kie.spring;resolution:=optional,
-              =org.kie.scanner.*;resolution:=optional,
               *
             </Import-Package>
             <Export-Package>
               org.drools.compiler.*
             </Export-Package>
             <Bundle-Activator>org.drools.compiler.osgi.Activator</Bundle-Activator>
-            <Provide-Capability>
-              org.ops4j.pax.cdi.extension; extension=kie-cdi
-            </Provide-Capability>
             <_removeheaders>Private-Package</_removeheaders>
           </instructions>
         </configuration>
       </plugin>
-      <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>findbugs-maven-plugin</artifactId>
-        <configuration>
-          <excludeFilterFile>${project.basedir}/src/main/findbugs/findbugs-exclude.xml</excludeFilterFile>
-        </configuration>
-      </plugin>
-     
-      <plugin>
-        <groupId>org.jboss.byteman</groupId>
-        <artifactId>byteman-rulecheck-maven-plugin</artifactId>
-        <version>${version.org.jboss.byteman}</version>
-        <executions>
-          <execution>
-            <id>rulecheck-test</id>
-            <goals>
-              <goal>rulecheck</goal>
-            </goals>
-            <phase>test-compile</phase>
-            <configuration>
-              <includes>
-                <include>**/*.btm</include>
-              </includes>
-              <verbose>true</verbose>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
     </plugins>
   </build>
-  
+
   <profiles>
+    <profile>
+      <id>runTurtleTests</id>
+      <activation>
+        <property>
+          <name>runTurtleTests</name>
+        </property>
+      </activation>
+      <properties>
+        <excludedGroups/>
+      </properties>
+    </profile>
     <profile>
       <id>grammarsProfile</id>
       <activation>
@@ -350,5 +346,5 @@
       </build>
     </profile>
   </profiles>
-  
+
 </project>

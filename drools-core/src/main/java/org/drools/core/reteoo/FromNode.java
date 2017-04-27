@@ -16,6 +16,14 @@
 
 package org.drools.core.reteoo;
 
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import java.io.Serializable;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+
 import org.drools.core.RuleBaseConfiguration;
 import org.drools.core.common.BetaConstraints;
 import org.drools.core.common.EmptyBetaConstraints;
@@ -35,14 +43,6 @@ import org.drools.core.spi.PropagationContext;
 import org.drools.core.spi.Tuple;
 import org.drools.core.util.AbstractBaseLinkedListNode;
 import org.drools.core.util.index.TupleList;
-
-import java.io.IOException;
-import java.io.ObjectInput;
-import java.io.ObjectOutput;
-import java.io.Serializable;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
 
 import static org.drools.core.util.ClassUtils.areNullSafeEquals;
 
@@ -300,7 +300,7 @@ public class FromNode<T extends FromNode.FromMemory> extends LeftTupleSource
     public static class FromMemory extends AbstractBaseLinkedListNode<Memory>
         implements
         Serializable,
-        Memory {
+        SegmentNodeMemory {
         private static final long serialVersionUID = 510l;
 
         private DataProvider      dataProvider;
@@ -334,6 +334,26 @@ public class FromNode<T extends FromNode.FromMemory> extends LeftTupleSource
         public void reset() {
             this.betaMemory.reset();
             this.providerContext = dataProvider.createContext();
+        }
+
+        @Override
+        public long getNodePosMaskBit() {
+            return betaMemory.getNodePosMaskBit();
+        }
+
+        @Override
+        public void setNodePosMaskBit( long segmentPos ) {
+            betaMemory.setNodePosMaskBit( segmentPos );
+        }
+
+        @Override
+        public void setNodeDirtyWithoutNotify() {
+            betaMemory.setNodeDirtyWithoutNotify();
+        }
+
+        @Override
+        public void setNodeCleanWithoutNotify() {
+            betaMemory.setNodeCleanWithoutNotify();
         }
     }
     
@@ -371,11 +391,8 @@ public class FromNode<T extends FromNode.FromMemory> extends LeftTupleSource
         return new FromNodeLeftTuple(leftTuple, rightTuple, currentLeftChild, currentRightChild, sink, leftTupleMemoryEnabled );        
     }
 
-    public LeftTupleSource getLeftTupleSource() {
-        return this.leftInput;
-    }
-
-    protected ObjectTypeNode getObjectTypeNode() {
+    @Override
+    public ObjectTypeNode getObjectTypeNode() {
         return leftInput.getObjectTypeNode();
     }
 
@@ -386,22 +403,6 @@ public class FromNode<T extends FromNode.FromMemory> extends LeftTupleSource
 
     @Override
     public void retractLeftTuple(LeftTuple leftTuple, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void modifyLeftTuple(InternalFactHandle factHandle, ModifyPreviousTuples modifyPreviousTuples, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-
-    @Override
-    public void updateSink(LeftTupleSink sink, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void modifyLeftTuple(LeftTuple leftTuple, PropagationContext context, InternalWorkingMemory workingMemory) {
         throw new UnsupportedOperationException();
     }
 

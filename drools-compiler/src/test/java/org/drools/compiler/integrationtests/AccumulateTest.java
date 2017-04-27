@@ -15,6 +15,23 @@
 
 package org.drools.compiler.integrationtests;
 
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import java.io.Serializable;
+import java.io.StringReader;
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.drools.compiler.Cheese;
 import org.drools.compiler.Cheesery;
 import org.drools.compiler.CommonTestMethodBase;
@@ -29,7 +46,6 @@ import org.drools.core.reteoo.LeftTupleSink;
 import org.drools.core.reteoo.ObjectSink;
 import org.drools.core.reteoo.ObjectTypeNode;
 import org.drools.core.reteoo.RightInputAdapterNode;
-import org.drools.core.time.SessionPseudoClock;
 import org.junit.Test;
 import org.kie.api.KieBase;
 import org.kie.api.KieBaseConfiguration;
@@ -51,33 +67,19 @@ import org.kie.api.runtime.rule.FactHandle;
 import org.kie.api.runtime.rule.Match;
 import org.kie.api.runtime.rule.QueryResults;
 import org.kie.api.runtime.rule.Variable;
+import org.kie.api.time.SessionPseudoClock;
 import org.kie.internal.KnowledgeBase;
 import org.kie.internal.KnowledgeBaseFactory;
 import org.kie.internal.builder.KnowledgeBuilder;
 import org.kie.internal.builder.KnowledgeBuilderFactory;
+import org.kie.internal.builder.conf.PropertySpecificOption;
 import org.kie.internal.io.ResourceFactory;
 import org.kie.internal.runtime.StatefulKnowledgeSession;
 import org.kie.internal.utils.KieHelper;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
-import java.io.IOException;
-import java.io.ObjectInput;
-import java.io.ObjectOutput;
-import java.io.Serializable;
-import java.io.StringReader;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-
+import static java.util.Arrays.asList;
 import static org.hamcrest.CoreMatchers.is;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -939,8 +941,8 @@ public class AccumulateTest extends CommonTestMethodBase {
         wm.fireAllRules();
 
         assertEquals( 2, list.size() );
-        assertEquals( "r1:10.0", list.get( 0 ) );
-        assertEquals( "r2:10.0", list.get( 1 ) );
+        assertEquals( "r1:10", list.get( 0 ) );
+        assertEquals( "r2:10", list.get( 1 ) );
     }
 
     public void execTestAccumulateSum( String fileName ) throws Exception {
@@ -2003,7 +2005,7 @@ public class AccumulateTest extends CommonTestMethodBase {
         ksession.dispose();
         assertEquals( 1,
                       results.size() );
-        assertEquals( 9.0,
+        assertEquals( 9L,
                       results.get( 0 ) );
     }
 
@@ -2259,15 +2261,15 @@ public class AccumulateTest extends CommonTestMethodBase {
         map.put( "count", 0 );
 
         MyPerson josJr = new MyPerson( "Jos Jr Jr", 20,
-                                       Arrays.asList( new MyPerson( "John Jr 1st", 10,
-                                                                    Arrays.asList( new MyPerson( "John Jr Jrx", 4, Collections.<MyPerson>emptyList() ) ) ),
+                                       asList( new MyPerson( "John Jr 1st", 10,
+                                                                    asList( new MyPerson( "John Jr Jrx", 4, Collections.<MyPerson>emptyList() ) ) ),
                                                       new MyPerson( "John Jr 2nd", 8, Collections.<MyPerson>emptyList() ) ) );
 
         MyPerson jos = new MyPerson( "Jos", 30,
-                                     Arrays.asList( new MyPerson( "Jeff Jr 1st", 10, Collections.<MyPerson>emptyList() ),
+                                     asList( new MyPerson( "Jeff Jr 1st", 10, Collections.<MyPerson>emptyList() ),
                                                     new MyPerson( "Jeff Jr 2nd", 8, Collections.<MyPerson>emptyList() ) ) );
 
-        ksession.execute( new InsertElementsCommand( Arrays.asList( new Object[]{josJr, jos} ) ) );
+        ksession.execute( new InsertElementsCommand( asList( new Object[]{josJr, jos} ) ) );
 
         ksession.fireAllRules();
 
@@ -2520,27 +2522,27 @@ public class AccumulateTest extends CommonTestMethodBase {
 
         ksession.insert( new Integer( 20 ) );
         ksession.fireAllRules();
-        assertEquals( list, Arrays.asList( 1, 1 ) );
+        assertEquals( list, asList( 1, 1 ) );
 
         ksession.insert( new Integer( 20 ) );
         ksession.fireAllRules();
-        assertEquals( list, Arrays.asList( 2, 2 ) );
+        assertEquals( list, asList( 2, 2 ) );
 
         ksession.insert( new Integer( 20 ) );
         ksession.fireAllRules();
-        assertEquals( list, Arrays.asList( 2, 3 ) );
+        assertEquals( list, asList( 2, 3 ) );
 
         ksession.insert( new Integer( 2 ) );
         ksession.fireAllRules();
-        assertEquals( list, Arrays.asList( 2, 4 ) );
+        assertEquals( list, asList( 2, 4 ) );
 
         ksession.insert( new Integer( 2 ) );
         ksession.fireAllRules();
-        assertEquals( list, Arrays.asList( 2, 5 ) );
+        assertEquals( list, asList( 2, 5 ) );
 
         ksession.insert( new Integer( 2 ) );
         ksession.fireAllRules();
-        assertEquals( list, Arrays.asList( 2, 5 ) );
+        assertEquals( list, asList( 2, 5 ) );
 
     }
 
@@ -2605,7 +2607,7 @@ public class AccumulateTest extends CommonTestMethodBase {
         assertThat( (Integer) ac.getValue().getMatch().getDeclarationValue( "$v" ), is( Integer.valueOf( 1 ) ) );
     }
 
-    public static class TestFunction implements AccumulateFunction {
+    public static class TestFunction implements AccumulateFunction<Serializable> {
         @Override
         public void writeExternal( ObjectOutput out ) throws IOException {
         }
@@ -2660,8 +2662,8 @@ public class AccumulateTest extends CommonTestMethodBase {
                 "   Double() " +
                 "   String() " +
                 "   $list : java.util.List(  this not contains \"XX\" ) " +
-                "   $sum  : Double( ) from accumulate ( $i : Integer(), " +
-                "                                       sum( $i ) ) " +
+                "   $sum  : Integer( ) from accumulate ( $i : Integer(), " +
+                "                                        sum( $i ) ) " +
                 "then " +
                 "    $list.add( \"XX\" );\n" +
                 "    update( $list );\n" +
@@ -2789,6 +2791,16 @@ public class AccumulateTest extends CommonTestMethodBase {
     @Test
     public void testAccFunctionOpaqueJoins() throws Exception {
         // DROOLS-661
+        testAccFunctionOpaqueJoins(PropertySpecificOption.ALLOWED);
+    }
+
+    @Test
+    public void testAccFunctionOpaqueJoinsWithPropertyReactivity() throws Exception {
+        // DROOLS-1445
+        testAccFunctionOpaqueJoins(PropertySpecificOption.ALWAYS);
+    }
+
+    private void testAccFunctionOpaqueJoins(PropertySpecificOption propertySpecificOption) throws Exception {
         String str = "package org.test; " +
                      "import java.util.*; " +
                      "global List list; " +
@@ -2844,7 +2856,7 @@ public class AccumulateTest extends CommonTestMethodBase {
                      "    list2.add( $tot ); " +
                      "end ";
 
-        KieHelper helper = new KieHelper();
+        KieHelper helper = new KieHelper( propertySpecificOption );
         KieSession ks = helper.addContent( str, ResourceType.DRL ).build().newKieSession();
         List list = new ArrayList();
         ks.setGlobal( "list", list );
@@ -2853,18 +2865,18 @@ public class AccumulateTest extends CommonTestMethodBase {
 
         // init data
         ks.fireAllRules();
-        assertEquals( Arrays.asList( 8.0 ), list );
-        assertEquals( Arrays.asList( 8.0 ), list2 );
+        assertEquals( asList( 8.0 ), list );
+        assertEquals( asList( 8.0 ), list2 );
 
         ks.insert( 1 );
         ks.fireAllRules();
-        assertEquals( Arrays.asList( 8.0, 10.0 ), list );
-        assertEquals( Arrays.asList( 8.0, 10.0 ), list2 );
+        assertEquals( asList( 8.0, 10.0 ), list );
+        assertEquals( asList( 8.0, 10.0 ), list2 );
 
         ks.insert( 2 );
         ks.fireAllRules();
-        assertEquals( Arrays.asList( 8.0, 10.0, 12.0 ), list );
-        assertEquals( Arrays.asList( 8.0, 10.0, 12.0 ), list2 );
+        assertEquals( asList( 8.0, 10.0, 12.0 ), list );
+        assertEquals( asList( 8.0, 10.0, 12.0 ), list2 );
     }
 
     public static class ExpectedMessage {
@@ -2983,11 +2995,11 @@ public class AccumulateTest extends CommonTestMethodBase {
     }
 
     private KieBase loadKieBaseFromString( String... drlContentStrings ) {
-        return loadKnowledgeBaseFromString( null, null, phreak, drlContentStrings );
+        return loadKnowledgeBaseFromString( null, null, drlContentStrings );
     }
 
     private KieSession getKieSessionFromContentStrings( String... drlContentStrings ) {
-        KieBase kbase = loadKnowledgeBaseFromString( null, null, phreak, drlContentStrings );
+        KieBase kbase = loadKnowledgeBaseFromString( null, null, drlContentStrings );
         return kbase.newKieSession();
     }
 
@@ -3012,7 +3024,7 @@ public class AccumulateTest extends CommonTestMethodBase {
                                              .build()
                                              .newKieSession();
 
-        List<Double> list = new ArrayList<Double>();
+        List<Integer> list = new ArrayList<Integer>();
         ksession.setGlobal( "list", list );
 
         ksession.insert( 1 );
@@ -3021,7 +3033,7 @@ public class AccumulateTest extends CommonTestMethodBase {
         ksession.fireAllRules();
 
         assertEquals( 1, list.size() );
-        assertEquals( "hello".length(), (double)list.get(0), 0.01 );
+        assertEquals( "hello".length(), (int)list.get(0), 0.01 );
     }
 
     @Test
@@ -3054,7 +3066,7 @@ public class AccumulateTest extends CommonTestMethodBase {
         ksession.fireAllRules();
 
         assertEquals( 1, list.size() );
-        assertEquals( "hello".length(), (double)list.get(0), 0.01 );
+        assertEquals( "hello".length(), list.get(0), 0.01 );
     }
 
     public static class Converter {
@@ -3089,5 +3101,530 @@ public class AccumulateTest extends CommonTestMethodBase {
 
         ksession.fireAllRules();
         assertEquals( 1, list.size() );
+    }
+
+    @Test
+    public void testIncompatibleTypeOnAccumulateFunction() {
+        // DROOLS-1243
+        String drl =
+                "import " + MyPerson.class.getCanonicalName() + ";\n" +
+                "import " + BigDecimal.class.getCanonicalName() + ";\n" +
+                "global java.util.List list;\n" +
+                "rule R when\n" +
+                "  $theFrom : BigDecimal() from accumulate(MyPerson( $val : age ); \n" +
+                "                                          sum( $val ) )\n" +
+                "then\n" +
+                "  list.add($theFrom);\n" +
+                "end\n";
+
+        KieServices ks = KieServices.Factory.get();
+        KieFileSystem kfs = ks.newKieFileSystem().write( "src/main/resources/r1.drl", drl );
+        Results results = ks.newKieBuilder( kfs ).buildAll().getResults();
+        assertFalse( results.getMessages().isEmpty() );
+    }
+
+    @Test
+    public void testIncompatibleListOnAccumulateFunction() {
+        // DROOLS-1243
+        String drl =
+                "import " + MyPerson.class.getCanonicalName() + ";\n" +
+                "import " + BigDecimal.class.getCanonicalName() + ";\n" +
+                "global java.util.List list;\n" +
+                "rule R when\n" +
+                "  $theFrom : String() from accumulate(MyPerson( $val : age ); \n" +
+                "                                          collectList( $val ) )\n" +
+                "then\n" +
+                "  list.add($theFrom);\n" +
+                "end\n";
+
+        KieServices ks = KieServices.Factory.get();
+        KieFileSystem kfs = ks.newKieFileSystem().write( "src/main/resources/r1.drl", drl );
+        Results results = ks.newKieBuilder( kfs ).buildAll().getResults();
+        assertFalse( results.getMessages().isEmpty() );
+    }
+
+    @Test
+    public void testTypedSumOnAccumulate() {
+        // DROOLS-1175
+        String drl1 =
+                "global java.util.List list;\n" +
+                "rule R when\n" +
+                "  $i : Integer()\n" +
+                "  accumulate ( $s : String(), $result : sum( $s.length() ) )\n" +
+                "then\n" +
+                "  list.add($result);\n" +
+                "end";
+
+        KieSession ksession = new KieHelper().addContent( drl1, ResourceType.DRL )
+                                             .build()
+                                             .newKieSession();
+
+        List<Integer> list = new ArrayList<Integer>();
+        ksession.setGlobal( "list", list );
+
+        ksession.insert( 1 );
+        ksession.insert( "hello" );
+        ksession.insert( "hi" );
+        ksession.fireAllRules();
+
+        assertEquals( 1, list.size() );
+        assertEquals( "hello".length() + "hi".length(), (int)list.get(0) );
+    }
+
+    @Test
+    public void testSumAccumulateOnNullValue() {
+        // DROOLS-1242
+        String drl1 =
+                "import " + PersonWithBoxedAge.class.getCanonicalName() + ";\n" +
+                "global java.util.List list;\n" +
+                "rule R when\n" +
+                "  accumulate ( $p : PersonWithBoxedAge(), $result : sum( $p.getAge() ) )\n" +
+                "then\n" +
+                "  list.add($result);\n" +
+                "end";
+
+        KieSession ksession = new KieHelper().addContent( drl1, ResourceType.DRL )
+                                             .build()
+                                             .newKieSession();
+
+        List<Integer> list = new ArrayList<Integer>();
+        ksession.setGlobal( "list", list );
+
+        ksession.insert( new PersonWithBoxedAge("me", 30) );
+        ksession.insert( new PersonWithBoxedAge("you", 40) );
+        ksession.insert( new PersonWithBoxedAge("she", null) );
+        ksession.fireAllRules();
+
+        assertEquals( 1, list.size() );
+        assertEquals( 70, (int)list.get(0) );
+    }
+
+    @Test
+    public void testMinAccumulateOnComparable() {
+        String drl1 =
+                "import " + PersonWithBoxedAge.class.getCanonicalName() + ";\n" +
+                "global java.util.List list;\n" +
+                "rule R when\n" +
+                "  accumulate ( $p : PersonWithBoxedAge(), $result : min( $p ) )\n" +
+                "then\n" +
+                "  list.add($result);\n" +
+                "end";
+
+        KieSession ksession = new KieHelper().addContent( drl1, ResourceType.DRL )
+                                             .build()
+                                             .newKieSession();
+
+        List<PersonWithBoxedAge> list = new ArrayList<PersonWithBoxedAge>();
+        ksession.setGlobal( "list", list );
+
+        ksession.insert( new PersonWithBoxedAge("me", 30) );
+        ksession.insert( new PersonWithBoxedAge("you", 40) );
+        ksession.insert( new PersonWithBoxedAge("she", 25) );
+        ksession.fireAllRules();
+
+        assertEquals( 1, list.size() );
+        assertEquals( "she", list.get(0).getName() );
+    }
+
+    @Test
+    public void testMaxAccumulateOnComparable() {
+        String drl1 =
+                "import " + PersonWithBoxedAge.class.getCanonicalName() + ";\n" +
+                "global java.util.List list;\n" +
+                "rule R when\n" +
+                "  accumulate ( $p : PersonWithBoxedAge(), $result : max( $p ) )\n" +
+                "then\n" +
+                "  list.add($result);\n" +
+                "end";
+
+        KieSession ksession = new KieHelper().addContent( drl1, ResourceType.DRL )
+                                             .build()
+                                             .newKieSession();
+
+        List<PersonWithBoxedAge> list = new ArrayList<PersonWithBoxedAge>();
+        ksession.setGlobal( "list", list );
+
+        ksession.insert( new PersonWithBoxedAge("me", 30) );
+        ksession.insert( new PersonWithBoxedAge("you", 40) );
+        ksession.insert( new PersonWithBoxedAge("she", 25) );
+        ksession.fireAllRules();
+
+        assertEquals( 1, list.size() );
+        assertEquals( "you", list.get(0).getName() );
+    }
+
+    public static class PersonWithBoxedAge implements Comparable<PersonWithBoxedAge> {
+        private final String name;
+        private final Integer age;
+
+        public PersonWithBoxedAge( String name, Integer age ) {
+            this.name = name;
+            this.age = age;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public Integer getAge() {
+            return age;
+        }
+
+        @Override
+        public int compareTo( PersonWithBoxedAge other ) {
+            return age.compareTo( other.getAge() );
+        }
+    }
+
+    @Test
+    public void testTypedMaxOnAccumulate() {
+        // DROOLS-1175
+        String drl1 =
+                "global java.util.List list;\n" +
+                "rule R when\n" +
+                "  $i : Integer()\n" +
+                "  $result : Integer() from accumulate ( $s : String(), max( $s.length() ) )\n" +
+                "then\n" +
+                "  list.add($result);\n" +
+                "end";
+
+        KieSession ksession = new KieHelper().addContent( drl1, ResourceType.DRL )
+                                             .build()
+                                             .newKieSession();
+
+        List<Integer> list = new ArrayList<Integer>();
+        ksession.setGlobal( "list", list );
+
+        ksession.insert( 1 );
+        ksession.insert( "hello" );
+        ksession.insert( "hi" );
+        ksession.fireAllRules();
+
+        assertEquals( 1, list.size() );
+        assertEquals( "hello".length(), (int)list.get(0) );
+    }
+
+    @Test
+    public void testVarianceDouble() {
+        String drl =
+                "import org.drools.compiler.Cheese\n" +
+                "global java.util.List list;\n" +
+                "rule R when\n" +
+                "  accumulate(\n" +
+                "    Cheese($price : price);\n" +
+                "    $result : variance($price)\n" +
+                "  )\n" +
+                "then\n" +
+                "  list.add($result);\n" +
+                "end";
+
+        KieBase kieBase = new KieHelper().addContent(drl, ResourceType.DRL).build();
+
+        assertEquals(0.00, cheeseInsertsFunction(kieBase, 3, 3, 3, 3, 3), 0.01);
+        assertEquals(0.80, cheeseInsertsFunction(kieBase, 4, 4, 3, 2, 2), 0.01);
+        assertEquals(1.20, cheeseInsertsFunction(kieBase, 5, 3, 3, 2, 2), 0.01);
+        assertEquals(2.80, cheeseInsertsFunction(kieBase, 5, 5, 2, 2, 1), 0.01);
+        assertEquals(2.80, cheeseInsertsFunction(kieBase, 6, 3, 3, 2, 1), 0.01);
+        assertEquals(4.40, cheeseInsertsFunction(kieBase, 6, 5, 2, 1, 1), 0.01);
+        assertEquals(16.00, cheeseInsertsFunction(kieBase, 11, 1, 1, 1, 1), 0.01);
+        assertEquals(36.00, cheeseInsertsFunction(kieBase, 15, 0, 0, 0, 0), 0.01);
+    }
+
+    @Test
+    public void testStandardDeviationDouble() {
+        String drl =
+                "import org.drools.compiler.Cheese\n" +
+                "global java.util.List list;\n" +
+                "rule R when\n" +
+                "  accumulate(\n" +
+                "    Cheese($price : price);\n" +
+                "    $result : standardDeviation($price)\n" +
+                "  )\n" +
+                "then\n" +
+                "  list.add($result);\n" +
+                "end";
+
+        KieBase kieBase = new KieHelper().addContent(drl, ResourceType.DRL).build();
+
+        assertEquals(0.00, cheeseInsertsFunction(kieBase, 3, 3, 3, 3, 3), 0.01);
+        assertEquals(0.89, cheeseInsertsFunction(kieBase, 4, 4, 3, 2, 2), 0.01);
+        assertEquals(1.10, cheeseInsertsFunction(kieBase, 5, 3, 3, 2, 2), 0.01);
+        assertEquals(1.67, cheeseInsertsFunction(kieBase, 5, 5, 2, 2, 1), 0.01);
+        assertEquals(1.67, cheeseInsertsFunction(kieBase, 6, 3, 3, 2, 1), 0.01);
+        assertEquals(2.10, cheeseInsertsFunction(kieBase, 6, 5, 2, 1, 1), 0.01);
+        assertEquals(4.00, cheeseInsertsFunction(kieBase, 11, 1, 1, 1, 1), 0.01);
+        assertEquals(6.00, cheeseInsertsFunction(kieBase, 15, 0, 0, 0, 0), 0.01);
+    }
+    
+    private double cheeseInsertsFunction(KieBase kieBase, int... prices) {
+        KieSession ksession = kieBase.newKieSession();
+        List<Double> list = new ArrayList<>();
+        ksession.setGlobal("list", list);
+        for (int price : prices) {
+            ksession.insert(new Cheese("stilton", price));
+        }
+        ksession.fireAllRules();
+        assertEquals(1, list.size());
+        double result = list.get(0);
+        FactHandle triggerReverseHandle = ksession.insert(new Cheese("triggerReverse", 7));
+        ksession.fireAllRules();
+        ksession.delete(triggerReverseHandle);
+        list.clear();
+        ksession.fireAllRules();
+        assertEquals(1, list.size());
+        // Check that the reserse() does the opposite of the accumulate()
+        assertEquals(result, list.get(0), 0.001);
+        ksession.dispose();
+        return list.get(0);
+    }
+
+    @Test
+    public void testConcurrentLeftAndRightUpdate() {
+        // DROOLS-1517
+        String drl = "package P;\n"
+                     + "import " + Visit.class.getCanonicalName() + ";\n"
+                     + "global java.util.List list\n"
+                     + "rule OvercommittedMechanic\n"
+                     + "when\n"
+                     + "  Visit($bucket : bucket)\n"
+                     + "  $weeklyCommitment : Number() from accumulate(\n"
+                     + "	     Visit($duration : duration, bucket == $bucket),\n"
+                     + "	          sum($duration)\n"
+                     + "      )\n"
+                     + "then\n"
+                     + "  list.add($weeklyCommitment);"
+                     + "end";
+
+        KieSession kieSession = new KieHelper().addContent(drl, ResourceType.DRL).build().newKieSession();
+
+        List list = new ArrayList();
+        kieSession.setGlobal( "list", list );
+
+        Visit visit1 = new Visit(1.0);
+        Visit visit2 = new Visit(2.0);
+        Visit visit3 = new Visit(3.0);
+        Visit visit4 = new Visit(4.0);
+        int bucketA = 1;
+        int bucketB = 2;
+        visit1.setBucket(bucketA);
+        visit2.setBucket(bucketB);
+        visit3.setBucket(bucketB);
+        visit4.setBucket(bucketB);
+
+        FactHandle fhVisit1 = kieSession.insert(visit1);
+        FactHandle fhVisit2 = kieSession.insert(visit2);
+        FactHandle fhVisit3 = kieSession.insert(visit3);
+        FactHandle fhVisit4 = kieSession.insert(visit4);
+
+        kieSession.fireAllRules();
+        assertTrue( containsExactlyAndClear( list, 9.0, 9.0, 9.0, 1.0 ) );
+
+        kieSession.update(fhVisit4, visit4);
+        kieSession.update(fhVisit3, visit3.setBucket(bucketA));
+        kieSession.update(fhVisit1, visit1.setBucket(bucketB));
+
+        kieSession.fireAllRules();
+        assertTrue( containsExactlyAndClear( list, 7.0, 7.0, 3.0, 7.0 ) );
+
+        kieSession.update(fhVisit1, visit1.setBucket(bucketA));
+
+        kieSession.fireAllRules();
+        assertTrue( list.containsAll( asList( 6.0, 4.0, 6.0, 4.0 ) ) );
+    }
+
+    public static class Visit {
+
+        private static int TAG = 1;
+
+        private final double duration;
+        private int bucket;
+
+        private final int tag;
+
+        public Visit(double duration) {
+            this.duration = duration;
+            this.tag = TAG++;
+        }
+
+        public int getBucket() {
+            return bucket;
+        }
+
+        public Visit setBucket(int bucket) {
+            this.bucket = bucket;
+            return this;
+        }
+
+        public double getDuration() {
+            return duration;
+        }
+
+        @Override
+        public String toString() {
+            return "Visit[" + tag + "]";
+        }
+    }
+
+    private <T> boolean containsExactlyAndClear(List<T> list, T... values) {
+        if (list.size() != values.length) {
+            return false;
+        }
+        for (T value : values) {
+            if (!list.remove( value )) {
+                System.err.println(value + " not present");
+                return false;
+            }
+        }
+        return list.isEmpty();
+    }
+
+    @Test
+    public void testDoubleAccumulate() {
+        // DROOLS-1530
+        String drl = "package P;"
+                     + "import " + BusStop.class.getCanonicalName() + ";\n"
+                     + "import " + Coach.class.getCanonicalName() + ";\n"
+                     + "import " + Shuttle.class.getCanonicalName() + ";\n"
+                     + "\n"
+                     + "global java.util.List result;\n"
+                     + "\n"
+                     + "rule coachCapacity\n"
+                     + "    when\n"
+                     + "        $coach : Coach()\n"
+                     + "        accumulate(\n"
+                     + "            BusStop(bus == $coach);\n"
+                     + "            count()\n"
+                     + "        )\n"
+                     + "\n"
+                     + "        $shuttle : Shuttle()\n"
+                     + "        accumulate(\n"
+                     + "            BusStop(bus == $coach)\n"
+                     + "            and BusStop(bus == $shuttle);\n"
+                     + "            $result : count()\n"
+                     + "        )\n"
+                     + "    then\n"
+                     + "        result.add($result);\n"
+                     + "end";
+
+        KieBase kieBase = new KieHelper().addContent(drl, ResourceType.DRL).build();
+        KieSession kieSession = kieBase.newKieSession();
+
+        ArrayList<Integer> result = new ArrayList<Integer>();
+        kieSession.setGlobal("result", result);
+
+        int id = 1;
+        Coach coach1 = new Coach( id++ );
+        Coach coach2 = new Coach( id++ );
+        Shuttle shuttle = new Shuttle( id++ );
+        BusStop stop1 = new BusStop( id++ );
+        BusStop stop2 = new BusStop( id++ );
+
+        stop2.setBus(coach2);
+
+        FactHandle fhCoach1 = kieSession.insert(coach1);
+        FactHandle fhCoach2 = kieSession.insert(coach2);
+        FactHandle fhShuttle = kieSession.insert(shuttle);
+        FactHandle fhStop1 = kieSession.insert(stop1);
+        FactHandle fhStop2 = kieSession.insert(stop2);
+
+        kieSession.fireAllRules();
+        result.clear();
+
+        kieSession.update(fhShuttle, shuttle);
+        kieSession.update(fhStop2, stop2);
+
+        kieSession.fireAllRules();
+        result.clear();
+
+        kieSession.update(fhShuttle, shuttle);
+        stop1.setBus(shuttle);
+        kieSession.update(fhStop1, stop1);
+
+        kieSession.fireAllRules();
+        ArrayList<Integer> actual = new ArrayList<Integer>(result);
+        Collections.sort(actual);
+        result.clear();
+        kieSession.dispose();
+
+        kieSession = kieBase.newKieSession();
+        kieSession.setGlobal("result", result);
+
+        // Insert everything into a fresh session to see the uncorrupted score
+        kieSession.insert(coach1);
+        kieSession.insert(coach2);
+        kieSession.insert(shuttle);
+        kieSession.insert(stop1);
+        kieSession.insert(stop2);
+
+        kieSession.fireAllRules();
+        ArrayList<Integer> expected = new ArrayList<Integer>(result);
+        Collections.sort(expected);
+        System.out.println("expected = " + expected);
+        System.out.println("actual = " + actual);
+        assertEquals(expected, actual);
+    }
+
+    public interface Bus { }
+
+    public static class Coach implements Bus {
+        private final int id;
+
+        public Coach( int id ) {
+            this.id = id;
+        }
+
+        public int getId() {
+            return id;
+        }
+
+        @Override
+        public String toString() {
+            return "Coach[" + id + "]";
+        }
+    }
+
+    public static class Shuttle implements Bus {
+        private final int id;
+
+        public Shuttle( int id ) {
+            this.id = id;
+        }
+
+        public int getId() {
+            return id;
+        }
+
+        @Override
+        public String toString() {
+            return "Shuttle[" + id + "]";
+        }
+    }
+
+    public static class BusStop {
+        private final int id;
+
+        private Bus bus;
+
+        public BusStop( int id ) {
+            this.id = id;
+        }
+
+
+        public Bus getBus() {
+            return bus;
+        }
+
+        public void setBus(Bus bus) {
+            this.bus = bus;
+        }
+
+        public int getId() {
+            return id;
+        }
+
+        @Override
+        public String toString() {
+            return "BusStop[" + id + "]";
+        }
     }
 }

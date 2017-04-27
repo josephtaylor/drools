@@ -15,20 +15,20 @@
 
 package org.drools.core.reteoo;
 
+import java.io.Externalizable;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+
 import org.drools.core.RuleBaseConfiguration;
 import org.drools.core.common.InternalFactHandle;
 import org.drools.core.common.InternalWorkingMemory;
 import org.drools.core.common.Memory;
 import org.drools.core.common.MemoryFactory;
 import org.drools.core.common.UpdateContext;
-import org.drools.core.util.AbstractBaseLinkedListNode;
 import org.drools.core.reteoo.builder.BuildContext;
 import org.drools.core.spi.PropagationContext;
-
-import java.io.Externalizable;
-import java.io.IOException;
-import java.io.ObjectInput;
-import java.io.ObjectOutput;
+import org.drools.core.util.AbstractBaseLinkedListNode;
 
 /**
  * Node which allows to follow different paths in the Rete-OO network,
@@ -250,7 +250,8 @@ public class ConditionalBranchNode extends LeftTupleSource implements LeftTupleS
         public void reset() { }
     }
 
-    protected ObjectTypeNode getObjectTypeNode() {
+    @Override
+    public ObjectTypeNode getObjectTypeNode() {
         return getLeftTupleSource().getObjectTypeNode();
     }
 
@@ -261,21 +262,6 @@ public class ConditionalBranchNode extends LeftTupleSource implements LeftTupleS
 
     @Override
     public void retractLeftTuple(LeftTuple leftTuple, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void modifyLeftTuple(InternalFactHandle factHandle, ModifyPreviousTuples modifyPreviousTuples, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void updateSink(LeftTupleSink sink, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void modifyLeftTuple(LeftTuple leftTuple, PropagationContext context, InternalWorkingMemory workingMemory) {
         throw new UnsupportedOperationException();
     }
 
@@ -290,4 +276,15 @@ public class ConditionalBranchNode extends LeftTupleSource implements LeftTupleS
         }
     }
 
+    @Override
+    protected void initDeclaredMask(BuildContext context, LeftTupleSource leftInput) {
+        // See LeftTupleSource.initDeclaredMask() should result for the ConditionalBranch to result in ALLSET:
+        // at the moment if pattern is null (e.g. for eval node) we cannot calculate the mask, so we leave it to 0
+        // 
+        // In other words, a conditional branch is analogous to an eval() call - mask ALL SET
+        
+        // To achieve the result, we highjack the call:
+        super.initDeclaredMask(null, null);
+    }
+    
 }

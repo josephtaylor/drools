@@ -16,19 +16,19 @@
 
 package org.drools.core;
 
-import org.drools.core.command.CommandService;
 import org.drools.core.common.ProjectClassLoader;
 import org.drools.core.process.instance.WorkItemManagerFactory;
 import org.drools.core.time.TimerService;
 import org.drools.core.util.ConfFileUtils;
 import org.drools.core.util.MVELSafeHelper;
 import org.kie.api.runtime.Environment;
+import org.kie.api.runtime.ExecutableRunner;
 import org.kie.api.runtime.KieSessionConfiguration;
 import org.kie.api.runtime.conf.BeliefSystemTypeOption;
 import org.kie.api.runtime.conf.ClockTypeOption;
 import org.kie.api.runtime.conf.KeepReferenceOption;
 import org.kie.api.runtime.conf.QueryListenerOption;
-import org.kie.api.runtime.conf.TimedRuleExectionOption;
+import org.kie.api.runtime.conf.TimedRuleExecutionOption;
 import org.kie.api.runtime.conf.TimedRuleExecutionFilter;
 import org.kie.api.runtime.conf.TimerJobFactoryOption;
 import org.kie.api.runtime.process.WorkItemHandler;
@@ -83,11 +83,11 @@ public class SessionConfigurationImpl extends SessionConfiguration {
 
     private Map<String, WorkItemHandler>   workItemHandlers;
     private WorkItemManagerFactory         workItemManagerFactory;
-    private CommandService                 commandService;
+    private ExecutableRunner runner;
 
     private transient ClassLoader          classLoader;
     
-    private TimerJobFactoryType              timerJobFactoryType;
+    private TimerJobFactoryType            timerJobFactoryType;
 
     public void writeExternal(ObjectOutput out) throws IOException {
         out.writeObject( chainedProperties );
@@ -157,7 +157,7 @@ public class SessionConfigurationImpl extends SessionConfiguration {
         setForceEagerActivationFilter(ForceEagerActivationOption.resolve(this.chainedProperties.getProperty(ForceEagerActivationOption.PROPERTY_NAME,
                                                                                                             "false")).getFilter());
 
-        setTimedRuleExecutionFilter(TimedRuleExectionOption.resolve(this.chainedProperties.getProperty(TimedRuleExectionOption.PROPERTY_NAME,
+        setTimedRuleExecutionFilter(TimedRuleExecutionOption.resolve(this.chainedProperties.getProperty(TimedRuleExecutionOption.PROPERTY_NAME,
                                                                                                        "false")).getFilter());
 
         setBeliefSystemType( BeliefSystemType.resolveBeliefSystemType( this.chainedProperties.getProperty( BeliefSystemTypeOption.PROPERTY_NAME,
@@ -356,13 +356,12 @@ public class SessionConfigurationImpl extends SessionConfiguration {
                                                    "org.jbpm.process.instance.event.DefaultSignalManagerFactory" );
     }
 
-    public CommandService getCommandService(KnowledgeBase kbase,
-                                            Environment environment) {
-        if ( this.commandService == null ) {
+    public ExecutableRunner getRunner( KnowledgeBase kbase, Environment environment ) {
+        if ( this.runner == null ) {
             initCommandService( kbase,
                                 environment );
         }
-        return this.commandService;
+        return this.runner;
     }
 
     @SuppressWarnings("unchecked")
@@ -374,19 +373,19 @@ public class SessionConfigurationImpl extends SessionConfiguration {
             return;
         }
 
-        Class<CommandService> clazz = null;
+        Class<ExecutableRunner> clazz = null;
         try {
-            clazz = (Class<CommandService>) this.classLoader.loadClass( className );
+            clazz = (Class<ExecutableRunner>) this.classLoader.loadClass( className );
         } catch ( ClassNotFoundException e ) {
         }
 
         if ( clazz != null ) {
             try {
-                this.commandService = clazz.getConstructor( KnowledgeBase.class,
-                                                            KieSessionConfiguration.class,
-                                                            Environment.class ).newInstance( kbase,
-                                                                                             this,
-                                                                                             environment );
+                this.runner = clazz.getConstructor( KnowledgeBase.class,
+                                                    KieSessionConfiguration.class,
+                                                    Environment.class ).newInstance( kbase,
+                                                                                     this,
+                                                                                     environment );
             } catch ( Exception e ) {
                 throw new IllegalArgumentException( "Unable to instantiate command service '" + className + "'",
                                                     e );

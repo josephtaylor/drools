@@ -16,6 +16,33 @@
 
 package org.drools.compiler.integrationtests;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.Serializable;
+import java.io.StringReader;
+import java.math.BigDecimal;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.sql.Timestamp;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Date;
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import org.drools.compiler.Address;
 import org.drools.compiler.Cheese;
 import org.drools.compiler.CommonTestMethodBase;
@@ -59,6 +86,7 @@ import org.drools.core.reteoo.LeftTuple;
 import org.drools.core.reteoo.ObjectTypeNode;
 import org.drools.core.reteoo.Rete;
 import org.drools.core.reteoo.ReteComparator;
+import org.drools.core.reteoo.ReteDumper;
 import org.drools.core.reteoo.RightTuple;
 import org.drools.core.reteoo.SegmentMemory;
 import org.drools.core.spi.KnowledgeHelper;
@@ -97,6 +125,7 @@ import org.kie.api.runtime.KieSessionConfiguration;
 import org.kie.api.runtime.StatelessKieSession;
 import org.kie.api.runtime.rule.Agenda;
 import org.kie.api.runtime.rule.FactHandle;
+import org.kie.api.runtime.rule.Match;
 import org.kie.internal.KnowledgeBase;
 import org.kie.internal.KnowledgeBaseFactory;
 import org.kie.internal.builder.KnowledgeBuilder;
@@ -106,7 +135,8 @@ import org.kie.internal.builder.KnowledgeBuilderResult;
 import org.kie.internal.builder.KnowledgeBuilderResults;
 import org.kie.internal.builder.ResultSeverity;
 import org.kie.internal.builder.conf.LanguageLevelOption;
-import org.kie.internal.builder.conf.RuleEngineOption;
+import org.kie.internal.event.rule.RuleEventListener;
+import org.kie.internal.event.rule.RuleEventManager;
 import org.kie.internal.io.ResourceFactory;
 import org.kie.internal.marshalling.MarshallerFactory;
 import org.kie.internal.runtime.StatefulKnowledgeSession;
@@ -115,33 +145,8 @@ import org.kie.internal.utils.KieHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.Serializable;
-import java.io.StringReader;
-import java.math.BigDecimal;
-import java.net.URL;
-import java.net.URLClassLoader;
-import java.sql.Timestamp;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Date;
-import java.util.EnumMap;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CompletionService;
-import java.util.concurrent.ExecutorCompletionService;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 import static java.util.Arrays.asList;
+import static org.drools.compiler.TestUtil.assertDrlHasCompilationError;
 import static org.junit.Assume.assumeTrue;
 
 /**
@@ -179,9 +184,7 @@ public class Misc2Test extends CommonTestMethodBase {
         if ( builder.hasErrors() ) {
             throw new RuntimeException( builder.getErrors().toString() );
         }
-        KieBaseConfiguration kconf = KnowledgeBaseFactory.newKnowledgeBaseConfiguration();
-        kconf.setOption( RuleEngineOption.PHREAK );
-        KnowledgeBase knowledgeBase = KnowledgeBaseFactory.newKnowledgeBase( kconf );
+        KnowledgeBase knowledgeBase = KnowledgeBaseFactory.newKnowledgeBase();
         knowledgeBase.addKnowledgePackages( builder.getKnowledgePackages() );
 
         StatefulKnowledgeSession ksession = knowledgeBase.newStatefulKnowledgeSession();
@@ -642,7 +645,7 @@ public class Misc2Test extends CommonTestMethodBase {
         assertEquals( asList( 7, 6, 5, 4, 3, 2, 1 ), list );
     }
 
-    @Test(timeout = 5000)
+    @Test(timeout = 10000)
     public void testPropertyReactiveOnAlphaNodeFollowedByAccumulate() {
         // DROOLS-16
         String str =
@@ -2269,21 +2272,20 @@ public class Misc2Test extends CommonTestMethodBase {
                 "    $x : String( this == \"x\" )\n" +
                 "    ?q( \"x\"; )\n" +
                 "then\n" +
-                "    final java.util.List l = list;" +
-                "    org.drools.core.common.AgendaItem item = ( org.drools.core.common.AgendaItem ) drools.getMatch();\n" +
-                "    item.setActivationUnMatchListener( new org.kie.internal.event.rule.ActivationUnMatchListener() {\n" +
-                "        public void unMatch(org.kie.api.runtime.rule.RuleRuntime wm, org.kie.api.runtime.rule.Match activation) {\n" +
-                "            l.add(\"pippo\");\n" +
-                "        }\n" +
-                "    } );" +
                 "    delete( \"x\" );\n" +
                 "end\n";
 
-        KnowledgeBase kbase = loadKnowledgeBaseFromString( str );
-        StatefulKnowledgeSession ksession = kbase.newStatefulKnowledgeSession();
+        KieSession ksession = new KieHelper().addContent(str, ResourceType.DRL).build().newKieSession();
 
         List list = new ArrayList();
         ksession.setGlobal( "list", list );
+
+        ( (RuleEventManager) ksession ).addEventListener( new RuleEventListener() {
+            @Override
+            public void onDeleteMatch( Match match ) {
+                list.add("test");
+            }
+        } );
 
         ksession.insert( "x" );
         ksession.fireAllRules();
@@ -2760,9 +2762,7 @@ public class Misc2Test extends CommonTestMethodBase {
         kbuilder.buildAll();
         assertEquals( 0, kbuilder.getResults().getMessages().size() );
 
-        KieBaseConfiguration conf = ks.newKieBaseConfiguration();
-        conf.setOption( RuleEngineOption.RETEOO );
-        KieBase kbase = ks.newKieContainer( kbuilder.getKieModule().getReleaseId() ).newKieBase( conf );
+        KieBase kbase = ks.newKieContainer( kbuilder.getKieModule().getReleaseId() ).getKieBase();
         KieSession ksession = kbase.newKieSession();
         ksession.fireAllRules();
     }
@@ -3626,8 +3626,8 @@ public class Misc2Test extends CommonTestMethodBase {
         ksession.fireAllRules();
 
         assertEquals( 2, map.size() );
-        assertEquals( 160.0, map.get( 4 ) );
-        assertEquals( 120.0, map.get( 3 ) );
+        assertEquals( 160, map.get( 4 ) );
+        assertEquals( 120, map.get( 3 ) );
 
     }
 
@@ -3703,6 +3703,7 @@ public class Misc2Test extends CommonTestMethodBase {
     public void testLockOnActive1() {
         // the modify changes the hashcode of TradeHeader
         // this forces the 'from' to think it's new. This results in an insert and a delete propagation from the 'from'
+        // With Property Reactivity enabled by default this also required adding a @watch(*) annotation
         String drl = "" +
                      "package org.drools.test; \n" +
                      "import org.drools.compiler.integrationtests.Misc2Test.TradeBooking;\n" +
@@ -3710,7 +3711,7 @@ public class Misc2Test extends CommonTestMethodBase {
                      "rule \"Rule1\" \n" +
                      "salience 1 \n" +
                      "when\n" +
-                     "  $booking: TradeBooking()\n" +
+                     "  $booking: TradeBooking() @watch(*) \n" +
                      "  $trade: TradeHeader() from $booking.getTrade()\n" +
                      "  not String()\n" +
                      "then\n" +
@@ -3722,12 +3723,14 @@ public class Misc2Test extends CommonTestMethodBase {
                      "rule \"Rule2\"\n" +
                      "lock-on-active true\n" +
                      "when\n" +
-                     "  $booking: TradeBooking( )\n" +
+                     "  $booking: TradeBooking( ) @watch(*) \n" +
                      "  $trade: Object( ) from $booking.getTrade()\n" +
                      "then\n" +
                      "end";
         KnowledgeBase kb = loadKnowledgeBaseFromString( drl );
         StatefulKnowledgeSession ks = kb.newStatefulKnowledgeSession();
+        
+        ReteDumper.dumpRete(kb);
 
         final List created = new ArrayList();
         final List cancelled = new ArrayList();
@@ -3773,6 +3776,7 @@ public class Misc2Test extends CommonTestMethodBase {
     public void testLockOnActive2() {
         // the modify changes the hashcode of TradeHeader
         // this forces the 'from' to think it's new. This results in an insert and a delete propagation from the 'from'
+        // With Property Reactivity enabled by default this also required adding a @watch(*) annotation
         String drl = "" +
                      "package org.drools.test; \n" +
                      "import org.drools.compiler.integrationtests.Misc2Test.TradeBooking;\n" +
@@ -3781,7 +3785,7 @@ public class Misc2Test extends CommonTestMethodBase {
                      "lock-on-active true\n" +
                      "salience 1 \n" +
                      "when\n" +
-                     "  $booking: TradeBooking()\n" +
+                     "  $booking: TradeBooking() @watch(*) \n" +
                      "  $trade: TradeHeader() from $booking.getTrade()\n" +
                      "then\n" +
                      "  $trade.setAction(\"New\");\n" +
@@ -3790,7 +3794,7 @@ public class Misc2Test extends CommonTestMethodBase {
                      "\n" +
                      "rule \"Rule2\"\n" +
                      "when\n" +
-                     "  $booking: TradeBooking( )\n" +
+                     "  $booking: TradeBooking( ) @watch(*) \n" +
                      "  $trade: Object( ) from $booking.getTrade()\n" +
                      "then\n" +
                      "end";
@@ -4711,9 +4715,9 @@ public class Misc2Test extends CommonTestMethodBase {
         ksession.fireAllRules();
 
         assertEquals( 4, list.size() );
-        assertEquals( 160.0, list.get( 0 ) );
+        assertEquals( 160, list.get( 0 ) );
         assertEquals( 4, list.get( 1 ) );
-        assertEquals( 120.0, list.get( 2 ) );
+        assertEquals( 120, list.get( 2 ) );
         assertEquals( 3, list.get( 3 ) );
     }
 
@@ -5051,9 +5055,7 @@ public class Misc2Test extends CommonTestMethodBase {
         assertEquals( 100, list.size() );
     }
 
-
     @Test
-    @Ignore
     public void testQueryCorruption() {
 
         String drl = "package drl;\n" +
@@ -7314,17 +7316,6 @@ public class Misc2Test extends CommonTestMethodBase {
         assertDrlHasCompilationError( str, 1 );
     }
 
-    private void assertDrlHasCompilationError( String str, int errorNr ) {
-        KieServices ks = KieServices.Factory.get();
-        KieFileSystem kfs = ks.newKieFileSystem().write( "src/main/resources/r1.drl", str );
-        Results results = ks.newKieBuilder( kfs ).buildAll().getResults();
-        if ( errorNr > 0 ) {
-            assertEquals( errorNr, results.getMessages().size() );
-        } else {
-            assertTrue( results.getMessages().size() > 0 );
-        }
-    }
-
     @Test
     public void testDuplicateDeclarationInAccumulate1() {
         // DROOLS-727
@@ -8451,5 +8442,685 @@ public class Misc2Test extends CommonTestMethodBase {
         kieSession.insert( "test" );
         kieSession.insert( true );
         assertEquals(4, kieSession.fireAllRules());
+    }
+
+    @Test
+    public void testDeletedRightTupleInChangedBucket() {
+        // PLANNER-488
+        String drl =
+                "import " + Person.class.getCanonicalName() + "\n" +
+                "rule R when\n" +
+                "    Person( $name: name, $age: age )\n" +
+                "    not Person( happy, name == $name, age == $age-1 )\n" +
+                "then\n" +
+                "end";
+
+        KieSession kieSession = new KieHelper().addContent( drl, ResourceType.DRL )
+                                               .build().newKieSession();
+
+        Person p1 = new Person( "C", 1, true );
+        Person p2 = new Person( "B", 1, true );
+        Person p3 = new Person( "B", 2, true );
+        Person p4 = new Person( "A", 2 );
+
+        FactHandle fh1 = kieSession.insert( p1 );
+        FactHandle fh2 = kieSession.insert( p2 );
+        FactHandle fh3 = kieSession.insert( p3 );
+        FactHandle fh4 = kieSession.insert( p4 );
+
+        kieSession.fireAllRules();
+
+        p4.setName( "B" );
+        p4.setHappy( true );
+        kieSession.update( fh4, p4 );
+
+        kieSession.fireAllRules();
+
+        p3.setName( "A" );
+        p3.setHappy( false );
+        kieSession.update( fh3, p3 );
+        p1.setName( "B" );
+        kieSession.update( fh1, p1 );
+        p2.setName( "C" );
+        kieSession.update( fh2, p2 );
+
+        kieSession.fireAllRules();
+    }
+
+    @Test
+    public void testJittingFunctionReturningAnInnerClass() {
+        // DROOLS-1166
+        String drl =
+                "import " + java.util.function.Function.class.getCanonicalName() + "\n" +
+                "function Function<String, Integer> f() {\n" +
+                "    return new Function<String, Integer>() {\n" +
+                "        public Integer apply(String s) {\n" +
+                "            return s.length();\n" +
+                "        }\n" +
+                "    };\n" +
+                "}\n" +
+                "\n" +
+                "rule R when\n" +
+                "    $s : String( f().apply(this) > 3 )\n" +
+                "then\n" +
+                "end\n";
+
+        KieSession kieSession = new KieHelper().addContent( drl, ResourceType.DRL )
+                                               .build().newKieSession();
+
+        kieSession.insert( "test" );
+        assertEquals( 1, kieSession.fireAllRules() );
+    }
+
+    @Test
+    public void testQueryWithEnum() {
+        // DROOLS-1181
+        String drl =
+                "import " + AnswerGiver.class.getCanonicalName() + "\n" +
+                "import " + Answer.class.getCanonicalName() + "\n" +
+                "\n" +
+                "declare TestThing end\n" +
+                "\n" +
+                "query TestQuery(Answer enumVal)\n" +
+                "  AnswerGiver( answer == enumVal )\n" +
+                "end\n" +
+                "\n" +
+                "query MyQuery()\n" +
+                "  TestQuery(Answer.NO;)\n" +
+                "end\n" +
+                "\n" +
+                "rule R when MyQuery() then end\n";
+
+
+        KieSession kieSession = new KieHelper().addContent( drl, ResourceType.DRL )
+                                               .build().newKieSession();
+
+        kieSession.insert( new AnswerGiver() );
+        assertEquals( 0, kieSession.fireAllRules() );
+    }
+
+    @Test
+    public void testOrQueryWithEnum() {
+        // DROOLS-1181
+        String drl =
+                "import " + AnswerGiver.class.getCanonicalName() + "\n" +
+                "import " + Answer.class.getCanonicalName() + "\n" +
+                "\n" +
+                "declare TestThing end\n" +
+                "\n" +
+                "query TestQuery(Answer enumVal)\n" +
+                "  AnswerGiver( answer == enumVal )\n" +
+                "end\n" +
+                "\n" +
+                "query ORQuery()\n" +
+                "  (\n" +
+                "    TestQuery(Answer.YES;)\n" +
+                "  ) or (\n" +
+                "    TestQuery(Answer.YES;)\n" +
+                "  )\n" +
+                "end\n" +
+                "\n" +
+                "rule R when ORQuery() then end\n";
+
+        KieSession kieSession = new KieHelper().addContent( drl, ResourceType.DRL )
+                                               .build().newKieSession();
+
+        kieSession.insert( new AnswerGiver() );
+        assertEquals( 2, kieSession.fireAllRules() );
+    }
+
+    @Test
+    public void testModifyWithOr() {
+        // DROOLS-1185
+        String drl =
+                "import " + List.class.getCanonicalName() + "\n" +
+                "import " + AtomicBoolean.class.getCanonicalName() + "\n" +
+                "\n" +
+                "rule R when\n" +
+                "  $l : List()\n" +
+                "  ( String() from $l\n" +
+                "  or\n" +
+                "  String() from $l )\n" +
+                "  $b : AtomicBoolean( get() )\n" +
+                "then" +
+                "  modify($b) { set(false) }\n" +
+                "end\n";
+
+        KieSession kieSession = new KieHelper().addContent( drl, ResourceType.DRL )
+                                               .build().newKieSession();
+
+        kieSession.insert( asList("test") );
+        kieSession.insert( new AtomicBoolean( true ) );
+        assertEquals( 1, kieSession.fireAllRules() );
+    }
+
+    @Test
+    public void testNormalizeRuleName() {
+        // DROOLS-1192
+        String drl =
+                "rule \"rule（hello）\" when\n" +
+                "  Integer()\n" +
+                "then\n" +
+                "end\n";
+
+        KieSession kieSession = new KieHelper().addContent( drl, ResourceType.DRL )
+                                               .build().newKieSession();
+
+        kieSession.insert( 1 );
+        assertEquals( 1, kieSession.fireAllRules() );
+    }
+
+    @Test
+    public void testCCEAfterDeserialization() throws Exception {
+        // DROOLS-1155
+        String drl =
+                "function boolean checkLength(int length) { return true; }\n" +
+                "rule R dialect \"mvel\" when\n" +
+                "    Boolean()" +
+                "    String( $length : length )\n" +
+                "    eval( checkLength($length) )\n" +
+                "    ( Integer( ) or eval( true ) )\n" +
+                "then\n" +
+                "end";
+
+        KieBase kbase1 = new KieHelper().addContent( drl, ResourceType.DRL ).build();
+        KieSession ksession1 = kbase1.newKieSession();
+        ksession1.insert( true );
+        ksession1.insert( "test" );
+        assertEquals(1, ksession1.fireAllRules());
+
+        KieBase kbase2 = SerializationHelper.serializeObject( kbase1, ( (InternalKnowledgeBase) kbase1 ).getRootClassLoader() );
+        KieSession ksession2 = kbase2.newKieSession();
+        ksession2.insert( true );
+        ksession2.insert( "test" );
+        assertEquals(1, ksession2.fireAllRules());
+    }
+
+    @Test
+    public void testWiringClassOnPackageMerge() throws Exception {
+        String drl_init =
+                "package init;\n" +
+                "import org.kie.test.TestObject\n" +
+                "rule RInit when\n" +
+                "then\n" +
+                "    TestObject obj1 = new TestObject();\n" +
+                "    TestObject obj2 = new TestObject();" +
+                "    obj1.add(obj2);" +
+                "    insert(obj1);\n" +
+                "end";
+
+        String drl1 =
+                "package p1;\n" +
+                "import org.kie.test.TestObject\n" +
+                "global java.util.List list;\n" +
+                "rule R1 when\n" +
+                "    $obj : TestObject( $objs : objects )\n" +
+                "    $s : Object() from $objs\n" +
+                "then\n" +
+                "    list.add(\"R1\");\n" +
+                "end";
+
+        String drl2 =
+                "package p2;\n" +
+                "import org.kie.test.TestObject\n" +
+                "global java.util.List list;\n" +
+                "rule R2 when\n" +
+                "    $obj : TestObject( $objs : objects )\n" +
+                "    $s : TestObject() from $objs\n" +
+                "then\n" +
+                "    list.add(\"R2\");\n" +
+                "end";
+
+        String javaSrc =
+                "package org.kie.test;\n" +
+                "import java.util.*;\n" +
+                "\n" +
+                "public class TestObject {\n" +
+                "    private final List<TestObject> objects = new ArrayList<TestObject>();\n" +
+                "\n" +
+                "    public List<TestObject> getObjects() {\n" +
+                "        return objects;\n" +
+                "    }\n" +
+                "    public void add(TestObject obj) {\n" +
+                "        objects.add(obj);" +
+                "    }" +
+                "}\n";
+
+        String path = "org/kie/test/MyRuleUnit";
+
+        KieServices ks = KieServices.Factory.get();
+        KieFileSystem kfs = ks.newKieFileSystem();
+        kfs.writeKModuleXML(ks.newKieModuleModel().toXML())
+           .write("src/main/resources/a.drl", drl_init)
+           .write("src/main/resources/b.drl", drl1)
+           .write("src/main/resources/c.drl", drl2)
+           .write("src/main/java/org/kie/test/TestObject.java", javaSrc);
+
+        ks.newKieBuilder( kfs ).buildAll();
+        KieContainer kcontainer = ks.newKieContainer(ks.getRepository().getDefaultReleaseId());
+        KieSession kSession = kcontainer.newKieSession();
+
+        List<String> list = new ArrayList<String>();
+        kSession.setGlobal( "list", list );
+        kSession.fireAllRules();
+
+        assertEquals( 2, list.size() );
+        assertTrue( list.contains( "R1" ) );
+        assertTrue( list.contains( "R2" ) );
+    }
+
+    @Test
+    public void testReorderRightMemoryOnIndexedField() {
+        // DROOLS-1174
+        String rule = "import " + Misc2Test.Seat.class.getCanonicalName() + ";\n"
+                + "\n"
+                + "rule twoSameJobTypePerTable when\n"
+                + "    $job: String()\n"
+                + "    $table : Long()\n"
+                + "    not (\n"
+                + "        Seat( guestJob == $job, table == $table, $leftId : id )\n"
+                + "        and Seat( guestJob == $job, table == $table, id > $leftId )\n"
+                + "    )\n"
+                + "then\n"
+                + "end";
+
+        KieSession kieSession = new KieHelper().addContent(rule, ResourceType.DRL).build().newKieSession();
+
+        String doctor = "D";
+        String politician = "P";
+        Long table1 = 1L;
+        Long table2 = 2L;
+        Seat seat0 = new Seat(0, politician, table2);
+        Seat seat1 = new Seat(1, politician, null);
+        Seat seat2 = new Seat(2, politician, table2);
+        Seat seat3 = new Seat(3, doctor, table1);
+        Seat seat4 = new Seat(4, doctor, table1);
+
+        kieSession.insert(seat0);
+        FactHandle fh1 = kieSession.insert(seat1);
+        FactHandle fh2 = kieSession.insert(seat2);
+        FactHandle fh3 = kieSession.insert(seat3);
+        kieSession.insert(seat4);
+        kieSession.insert(politician);
+        kieSession.insert(doctor);
+        kieSession.insert(table1);
+        kieSession.insert(table2);
+
+        assertEquals(2, kieSession.fireAllRules());
+
+        kieSession.update(fh3, seat3); // no change but the update is necessary to reproduce the bug
+        kieSession.update(fh2, seat2.setTable(null));
+        kieSession.update(fh1, seat1.setTable(table2));
+
+        assertEquals(0, kieSession.fireAllRules());
+    }
+
+    public static class Seat {
+
+        private final int id;
+        private final String guestJob;
+        private Long table;
+
+        public Seat(int id, String guestJob, Long table) {
+            this.id = id;
+            this.guestJob = guestJob;
+            this.table = table;
+        }
+
+        public String getGuestJob() {
+            return guestJob;
+        }
+
+        public int getId() {
+            return id;
+        }
+
+        public Long getTable() {
+            return table;
+        }
+
+        public Seat setTable(Long table) {
+            this.table = table;
+            return this;
+        }
+    }
+
+    @Test
+    public void testChildLeftTuplesIterationOnLeftUpdate() {
+        // DROOLS-1186
+        String drl =
+                "import " + Shift.class.getCanonicalName() + "\n" +
+                "rule R when\n" +
+                "    Shift( $end1: end, $employee: employee )\n" +
+                "    Shift( employee == $employee, start > $end1 )\n" +
+                "    not Shift( employee == $employee, start > $end1 )\n" +
+                "then\n" +
+                "end";
+
+        KieSession kieSession = new KieHelper().addContent(drl, ResourceType.DRL).build().newKieSession();
+
+        String o = "o";
+        String x = "x";
+
+        Shift shift1 = new Shift(10, 11, o);
+        Shift shift2 = new Shift(20, 21, o);
+        Shift shift3 = new Shift(30, 31, x);
+        Shift shift4 = new Shift(40, 41, o);
+        Shift shift5 = new Shift(50, 51, o);
+        Shift shift6 = new Shift(60, 61, o);
+        Shift shift7 = new Shift(70, 71, o);
+        Shift shift8 = new Shift(80, 81, o);
+
+        FactHandle fh1 = kieSession.insert(shift1);
+        FactHandle fh2 = kieSession.insert(shift2);
+        FactHandle fh3 = kieSession.insert(shift3);
+        FactHandle fh4 = kieSession.insert(shift4);
+        FactHandle fh5 = kieSession.insert(shift5);
+        FactHandle fh6 = kieSession.insert(shift6);
+        FactHandle fh7 = kieSession.insert(shift7);
+        FactHandle fh8 = kieSession.insert(shift8);
+
+        assertEquals( 0, kieSession.fireAllRules() );
+
+        kieSession.update(fh1, shift1.setEmployee(x));
+        kieSession.update(fh4, shift4);
+        kieSession.update(fh8, shift8);
+        kieSession.update(fh5, shift5.setEmployee(x));
+        kieSession.update(fh7, shift7);
+        kieSession.update(fh2, shift2.setEmployee(x));
+        kieSession.update(fh6, shift6);
+        kieSession.update(fh3, shift3.setEmployee(o));
+
+        assertEquals( 0, kieSession.fireAllRules() );
+
+        kieSession.update(fh8, shift8.setEmployee(x));
+        kieSession.update(fh4, shift4.setEmployee(x));
+        kieSession.update(fh7, shift7.setEmployee(x));
+        kieSession.update(fh6, shift6.setEmployee(x));
+
+        assertEquals( 0, kieSession.fireAllRules() );
+    }
+
+    public static class Shift {
+
+        private final int start;
+        private final int end;
+        private String employee;
+
+        public Shift(int start, int end, String employee) {
+            this.start = start;
+            this.end = end;
+            this.employee = employee;
+        }
+
+        public int getStart() {
+            return start;
+        }
+
+        public int getEnd() {
+            return end;
+        }
+
+        public String getEmployee() {
+            return employee;
+        }
+
+        public Shift setEmployee(String employee) {
+            this.employee = employee;
+            return this;
+        }
+
+        @Override
+        public String toString() {
+            return "Shift " + employee + " from " + start + " to " + end;
+        }
+    }
+
+    @Test
+    public void test1187() {
+        // DROOLS-1187
+        String drl = "import " + Misc2Test.Shift1187.class.getCanonicalName() + "\n"
+                + "rule insertEmployeeConsecutiveWeekendAssignmentStart when\n"
+                + "    Shift1187(\n"
+                + "        weekend == true,\n"
+                + "        $employee : employee, employee != null,\n"
+                + "        $week : week\n"
+                + "    )\n"
+                + "    // The first working weekend has no working weekend before it\n"
+                + "    not Shift1187(\n"
+                + "        weekend == true,\n"
+                + "        employee == $employee,\n"
+                + "        week == ($week - 1)\n"
+                + "    )\n"
+                + "then\n"
+                + "end";
+
+        KieSession kieSession = new KieHelper().addContent(drl, ResourceType.DRL).build().newKieSession();
+
+        Shift1187 shift1 = new Shift1187(0, 4);
+        Shift1187 shift2 = new Shift1187(1, 5);
+        Shift1187 shift3 = new Shift1187(2, 6);
+        Shift1187 shift4 = new Shift1187(2, 6);
+        Shift1187 shift5 = new Shift1187(2, 0);
+        Shift1187 shift6 = new Shift1187(3, 0);
+
+        String employeeA = "Sarah";
+        String employeeB = "Susan";
+        String employeeC = "Fred";
+
+        shift4.setEmployee(employeeB);
+        shift5.setEmployee(employeeA);
+
+        FactHandle fh1 = kieSession.insert(shift1);
+        FactHandle fh2 = kieSession.insert(shift2);
+        FactHandle fh3 = kieSession.insert(shift3);
+        FactHandle fh4 = kieSession.insert(shift4);
+        FactHandle fh5 = kieSession.insert(shift5);
+        FactHandle fh6 = kieSession.insert(shift6);
+
+        assertEquals(2, kieSession.fireAllRules());
+
+        kieSession.update(fh6, shift6.setEmployee(employeeA));
+        kieSession.update(fh1, shift1.setEmployee(employeeA));
+        kieSession.update(fh2, shift2.setEmployee(employeeC));
+
+        assertEquals(1, kieSession.fireAllRules());
+
+        kieSession.update(fh4, shift4.setEmployee(employeeB));
+        kieSession.update(fh3, shift3.setEmployee(employeeB));
+        kieSession.update(fh5, shift5.setEmployee(employeeB));
+        kieSession.update(fh2, shift2.setEmployee(employeeA));
+        kieSession.update(fh4, shift4.setEmployee(employeeA));
+
+        kieSession.fireAllRules();
+    }
+    
+   
+
+    public class Shift1187 {
+
+        private final int week;
+        private final int dayOfWeek;
+        private String employee;
+
+        public Shift1187(int week, int dayOfWeek) {
+            this.dayOfWeek = dayOfWeek;
+            this.week = week;
+        }
+
+        public String getEmployee() {
+            return employee;
+        }
+
+        public Shift1187 setEmployee(String employee) {
+            this.employee = employee;
+            return this;
+        }
+
+        public int getWeek() {
+            return week;
+        }
+
+        public boolean isWeekend() {
+            if (employee == null) {
+                return false;
+            }
+            return dayOfWeek == 6 || dayOfWeek == 0 || dayOfWeek == 5 && hasWeekendOnFriday(employee);
+        }
+
+        private boolean hasWeekendOnFriday(String employee) {
+            return employee.startsWith("F");
+        }
+    }
+
+    @Test
+    public void testReportFailingConstraintOnError() {
+        // DROOLS-1071
+        String drl =
+                "import " + Person.class.getCanonicalName() + "\n" +
+                "rule R when\n" +
+                "    Person( name.startsWith(\"A\") )\n" +
+                "then\n" +
+                "end";
+
+        KieSession kieSession = new KieHelper().addContent(drl, ResourceType.DRL).build().newKieSession();
+        for (int i = 0; i < 100; i++) {
+            kieSession.insert( new Person( "A"+i ) );
+        }
+        kieSession.fireAllRules();
+
+        kieSession.insert( new Person( null ) );
+        try {
+            kieSession.fireAllRules();
+            fail("Evaluation with null must throw a NPE");
+        } catch (Exception e) {
+            assertTrue( e.getMessage().contains( "name.startsWith(\"A\")" ) );
+        }
+    }
+
+    public static class TestObject {
+
+        private final Integer value;
+
+        public TestObject(Integer value) {
+            this.value = value;
+        }
+
+        public Integer getValue() {
+            return value;
+        }
+
+    }
+
+    @Test
+    public void testNpeInLessThanComparison() {
+        // RHBRMS-2462
+        String drl = "package com.sample\n"
+                     + "import " + TestObject.class.getCanonicalName() + ";\n"
+                     + "global java.util.List list\n"
+                     + "rule LessThanCompare when\n"
+                     + "    TestObject( $value : value )"
+                     + "    TestObject( value < $value )"
+                     + "then\n"
+                     + "    list.add(drools.getRule().getName() + \":\" + $value);\n"
+                     + "end\n"
+                     + "\n"
+                     + "rule GreaterThanCompare when\n"
+                     + "    TestObject( $value : value )\n"
+                     + "    TestObject( $value > value )\n"
+                     + "then\n"
+                     + "    list.add(drools.getRule().getName() + \":\" + $value);\n"
+                     + "end\n"
+                     + "\n"
+                     + "rule NotLessThanCompare when\n"
+                     + "    TestObject( $value : value )"
+                     + "    not ( TestObject( value < $value ) )"
+                     + "then\n"
+                     + "    list.add(drools.getRule().getName() + \":\" + $value);\n"
+                     + "end\n"
+                     + "\n"
+                     + "rule NotGreaterThanCompare when\n"
+                     + "    TestObject( $value : value )\n"
+                     + "    not ( TestObject( $value > value ) )\n"
+                     + "then\n"
+                     + "    list.add(drools.getRule().getName() + \":\" + $value);\n"
+                     + "end";
+
+        KieSession kSession = new KieHelper().addContent(drl, ResourceType.DRL).build().newKieSession();
+
+        List<String> list = new ArrayList<String>();
+        kSession.setGlobal( "list", list );
+
+        kSession.insert(new TestObject(null));
+        kSession.insert(new TestObject(5));
+
+        kSession.fireAllRules();
+
+        assertEquals( 4, list.size() );
+        assertTrue( list.contains( "NotLessThanCompare:5" ) );
+        assertTrue( list.contains( "NotLessThanCompare:null" ) );
+        assertTrue( list.contains( "NotGreaterThanCompare:5" ) );
+        assertTrue( list.contains( "NotGreaterThanCompare:null" ) );
+        assertFalse( list.contains( "LessThanCompare:5" ) );
+        assertFalse( list.contains( "LessThanCompare:null" ) );
+        assertFalse( list.contains( "GreaterThanCompare:5" ) );
+        assertFalse( list.contains( "GreaterThanCompare:null" ) );
+    }
+    
+    @Test
+    public void testUnderscoreDoubleMultiplicationCastedToInt() {
+        // DROOLS-1420
+        String str =
+                "import org.drools.compiler.Cheese\n" +
+                "global java.util.List list\n" +
+                "rule R when\n" +
+                "  Cheese( $p : price)\n" +
+                "then\n" +
+                "  int b = (int) ($p * 1_000.0);\n" +
+                "  list.add(\"\" + b);" +
+                "end\n";
+
+        KieSession ksession = new KieHelper().addContent(str, ResourceType.DRL).build().newKieSession();
+
+        List<String> list = new ArrayList<String>();
+        ksession.setGlobal( "list", list );
+
+        ksession.insert( new Cheese( "gauda", 42 ) );
+        ksession.fireAllRules();
+
+        assertEquals(1, list.size());
+        assertEquals("42000", list.get(0));
+    }
+    
+    /**
+     * This test deliberately creates a deadlock, failing the test with a timeout.
+     * Helpful to test thread dump when a timeout occur on the JUnit listener.
+     * See {@link org.kie.test.util.TestStatusListener#testFailure(org.junit.runner.notification.Failure)}
+     * @throws Exception
+     */
+    @Ignore("This test deliberately creates a deadlock, failing the test with a timeout.\n" + 
+            "Helpful to test thread dump when a timeout occur on the JUnit listener.\n" + 
+            "See org.kie.test.util.TestStatusListener#testFailure()")
+    @Test(timeout=5_000L)
+    public void testDeadlock() throws Exception {
+        final Object see_also = org.kie.test.util.TestStatusListener.class;
+        Object lock1 = 1L;
+        Object lock2 = 2L;
+        Runnable task1 = () -> {
+            synchronized(lock1) {
+              try { Thread.sleep(50); } catch (InterruptedException e) {}
+              synchronized(lock2) {
+              }
+            }
+        };
+        Runnable task2 = () -> {
+            synchronized(lock2) {
+              try { Thread.sleep(50); } catch (InterruptedException e) {}
+              synchronized(lock1) {
+              }
+            }
+        };
+        new Thread(task1).start();
+        task2.run();
     }
 }

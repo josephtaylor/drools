@@ -15,10 +15,16 @@
 
 package org.drools.compiler.integrationtests;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
 import org.drools.compiler.Address;
 import org.drools.compiler.CommonTestMethodBase;
 import org.drools.compiler.Person;
 import org.drools.core.factmodel.traits.Traitable;
+import org.drools.core.impl.StatefulKnowledgeSessionImpl;
 import org.drools.core.io.impl.ByteArrayResource;
 import org.junit.Test;
 import org.kie.api.KieBase;
@@ -26,16 +32,13 @@ import org.kie.api.definition.type.Modifies;
 import org.kie.api.definition.type.PropertyReactive;
 import org.kie.api.io.ResourceType;
 import org.kie.api.runtime.KieSession;
+import org.kie.api.runtime.rule.FactHandle;
 import org.kie.internal.KnowledgeBase;
 import org.kie.internal.builder.KnowledgeBuilder;
 import org.kie.internal.builder.KnowledgeBuilderFactory;
+import org.kie.internal.builder.conf.PropertySpecificOption;
 import org.kie.internal.runtime.StatefulKnowledgeSession;
 import org.kie.internal.utils.KieHelper;
-
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 
 public class PropertyReactivityTest extends CommonTestMethodBase {
 
@@ -1497,5 +1500,217 @@ public class PropertyReactivityTest extends CommonTestMethodBase {
 
         ksession.insert(new DummyBean("2"));
         ksession.fireAllRules();
+    }
+
+    @Test
+    public void testPropReactiveUpdate() {
+        // DROOLS-1275
+        String str1 =
+                "import " + Klass.class.getCanonicalName() + "\n" +
+                "global java.util.List list;\n" +
+                "rule R when\n" +
+                "  Klass( b == 2 )\n" +
+                "then\n" +
+                "  list.add(\"fired\");\n" +
+                "end\n";
+
+        KieSession ksession = new KieHelper().addContent( str1, ResourceType.DRL )
+                                             .build()
+                                             .newKieSession();
+
+        List<String> list = new ArrayList<String>();
+        ksession.setGlobal( "list", list );
+
+        Klass bean = new Klass( 1, 2, 3, 4, 5, 6 );
+        FactHandle fh = ksession.insert( bean );
+        ksession.fireAllRules();
+        assertEquals( 1, list.size() );
+
+        ( (StatefulKnowledgeSessionImpl) ksession ).update( fh, bean, "a", "d" );
+        ksession.fireAllRules();
+        assertEquals( 1, list.size() );
+
+        ( (StatefulKnowledgeSessionImpl) ksession ).update( fh, bean, "c", "b" );
+        ksession.fireAllRules();
+        assertEquals( 2, list.size() );
+    }
+
+    @Test
+    public void testSetterInConcreteClass() {
+        // DROOLS-1368
+        String drl = "import " + BaseFact.class.getCanonicalName() + ";\n"
+                     + "import " + MyFact.class.getCanonicalName() + ";\n"
+                     + "rule R when\n"
+                     + "    $b : BaseFact( $n : name, name != null )\n"
+                     + "then end\n";
+        KieSession ksession = new KieHelper().addContent(drl, ResourceType.DRL).build().newKieSession();
+
+        MyFact f = new MyFact();
+        FactHandle fh = ksession.insert(f);
+        assertEquals( 0, ksession.fireAllRules() );
+        f.setName("hello");
+        ksession.update(fh, f, "name");
+        assertEquals( 1, ksession.fireAllRules() );
+    }
+
+    public abstract class BaseFact {
+        public abstract String getName();
+    }
+
+    public class MyFact extends BaseFact {
+
+        private String name;
+
+        @Override
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+    }
+
+    @PropertyReactive
+    public interface StopOrHub {
+
+        boolean isVisitedByCoach();
+    }
+
+    @PropertyReactive
+    public static class BusStop implements StopOrHub {
+
+        private boolean visitedByCoach;
+
+        @Override
+        public boolean isVisitedByCoach() {
+            return visitedByCoach;
+        }
+
+        public BusStop setVisitedByCoach(boolean visitedByCoach) {
+            this.visitedByCoach = visitedByCoach;
+            return this;
+        }
+    }
+
+    @PropertyReactive
+    public static class Shuttle {
+
+        private StopOrHub destination;
+
+        public StopOrHub getDestination() {
+            return destination;
+        }
+
+        public Shuttle setDestination(StopOrHub destination) {
+            this.destination = destination;
+            return this;
+        }
+
+    }
+
+    @Test
+    public void testSetterInConcreteClass2() {
+        // DROOLS-1369
+        String drl = "package org.test;\n"
+                     + "import " + BusStop.class.getCanonicalName() + ";\n"
+                     + "import " + Shuttle.class.getCanonicalName() + ";\n"
+                     + "import " + StopOrHub.class.getCanonicalName() + ";\n"
+                     + "rule shuttleDestinationIsCoachOrHub\n"
+                     + "    when\n"
+                     + "        $destination : StopOrHub(visitedByCoach == false)\n"
+                     + "        Shuttle(destination == $destination)\n"
+                     + "    then\n"
+                     + "end";
+        KieSession kieSession = new KieHelper().addContent(drl, ResourceType.DRL).build().newKieSession();
+
+        BusStop busStop = new BusStop();
+        Shuttle shuttle = new Shuttle();
+        busStop.setVisitedByCoach(true);
+
+        FactHandle fhShuttle = kieSession.insert(shuttle);
+        FactHandle fhBusStop = kieSession.insert(busStop);
+
+        kieSession.update(fhShuttle, shuttle.setDestination(busStop));
+        assertEquals(0, kieSession.fireAllRules());
+
+        // removing the property name from this update will make the test pass
+        kieSession.update(fhBusStop, busStop.setVisitedByCoach(false), "visitedByCoach");
+        // LHS is now satisfied, the rule should fire but it doesn't
+        assertEquals(busStop, shuttle.getDestination());
+        assertFalse(busStop.isVisitedByCoach());
+        assertEquals(1, kieSession.fireAllRules()); // change the expected value to 0 to get further
+
+        // after this update (without any real fact modification) the rule will fire as expected
+        kieSession.update(fhBusStop, busStop);
+        assertEquals(1, kieSession.fireAllRules());
+    }
+
+    @Test
+    public void testWatchFieldInExternalPattern() {
+        // DROOLS-1445
+        String drl =
+                "import " + Person.class.getCanonicalName() + ";\n" +
+                "global java.util.List list;\n" +
+                "rule R when\n" +
+                "    $p1 : Person( name == \"Mario\" )\n" +
+                "    $p2 : Person( age > $p1.age ) \n" +
+                "then\n" +
+                "    list.add(\"t0\");\n" +
+                "end\n" +
+                "rule Z when\n" +
+                "    $p1 : Person( name == \"Mario\" ) \n" +
+                "then\n" +
+                "    modify($p1) { setAge(35); } \n" +
+                "end\n";
+
+        // making the default explicit:
+        KieSession ksession = new KieHelper(PropertySpecificOption.ALWAYS).addContent(drl, ResourceType.DRL)
+                                                                          .build()
+                                                                          .newKieSession();
+        List<String> list = new ArrayList<String>();
+        ksession.setGlobal("list", list);
+
+        Person mario = new Person("Mario", 40);
+        Person mark = new Person("Mark", 37);
+        FactHandle fh_mario = ksession.insert(mario);
+        ksession.insert(mark);
+        int x = ksession.fireAllRules();
+        assertEquals(1, list.size());
+        assertEquals("t0", list.get(0));
+    }
+
+    @Test
+    public void testWatchFieldInExternalNotPattern() {
+        // DROOLS-1445
+        String drl =
+                "import " + Person.class.getCanonicalName() + ";\n" +
+                "global java.util.List list;\n" +
+                "rule R when\n" +
+                "    $p1 : Person( name == \"Mario\" )\n" +
+                "    not( Person( age < $p1.age ) )\n" +
+                "then\n" +
+                "    list.add(\"t0\");\n" +
+                "end\n" +
+                "rule Z when\n" +
+                "    $p1 : Person( name == \"Mario\" ) \n" +
+                "then\n" +
+                "    modify($p1) { setAge(35); } \n" +
+                "end\n";
+
+        // making the default explicit:
+        KieSession ksession = new KieHelper(PropertySpecificOption.ALWAYS).addContent(drl, ResourceType.DRL)
+                                                                          .build()
+                                                                          .newKieSession();
+        List<String> list = new ArrayList<String>();
+        ksession.setGlobal("list", list);
+
+        Person mario = new Person("Mario", 40);
+        Person mark = new Person("Mark", 37);
+        FactHandle fh_mario = ksession.insert(mario);
+        ksession.insert(mark);
+        int x = ksession.fireAllRules();
+        assertEquals(1, list.size());
+        assertEquals("t0", list.get(0));
     }
 }

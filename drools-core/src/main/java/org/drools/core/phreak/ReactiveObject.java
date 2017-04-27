@@ -17,9 +17,10 @@ package org.drools.core.phreak;
 
 import org.drools.core.spi.Tuple;
 
-import java.util.List;
+import java.util.Collection;
 
 public interface ReactiveObject {
     void addLeftTuple(Tuple leftTuple);
-    List<Tuple> getLeftTuples();
+    void removeLeftTuple(Tuple leftTuple);
+    Collection<Tuple> getLeftTuples();
 }

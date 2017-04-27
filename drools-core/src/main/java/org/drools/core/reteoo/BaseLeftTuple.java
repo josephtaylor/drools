@@ -25,7 +25,6 @@ import java.util.Arrays;
 
 /**
  * A parent class for all specific LeftTuple specializations
- * @author etirelli
  *
  */
 public class BaseLeftTuple extends BaseTuple implements LeftTuple {
@@ -641,11 +640,6 @@ public class BaseLeftTuple extends BaseTuple implements LeftTuple {
     }
 
     @Override
-    public void modifyTuple( PropagationContext context, InternalWorkingMemory workingMemory) {
-        getTupleSink().modifyLeftTuple( this, context, workingMemory );
-    }
-
-    @Override
     public void retractTuple( PropagationContext context, InternalWorkingMemory workingMemory ) {
         getTupleSink().retractLeftTuple( this, context, workingMemory );
     }
@@ -656,5 +650,9 @@ public class BaseLeftTuple extends BaseTuple implements LeftTuple {
 
     public void setStagedTypeForQueries( short stagedTypeForQueries ) {
         this.stagedTypeForQueries = stagedTypeForQueries;
+    }
+
+    public boolean isStagedOnRight() {
+        return false;
     }
 }

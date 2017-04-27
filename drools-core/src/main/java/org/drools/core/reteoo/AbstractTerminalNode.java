@@ -15,10 +15,15 @@
 
 package org.drools.core.reteoo;
 
+import java.io.Externalizable;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import java.util.List;
+
 import org.drools.core.RuleBaseConfiguration;
 import org.drools.core.base.ClassObjectType;
 import org.drools.core.common.BaseNode;
-import org.drools.core.common.InternalFactHandle;
 import org.drools.core.common.InternalWorkingMemory;
 import org.drools.core.common.MemoryFactory;
 import org.drools.core.common.RuleBasePartitionId;
@@ -30,17 +35,9 @@ import org.drools.core.reteoo.builder.BuildContext;
 import org.drools.core.rule.Pattern;
 import org.drools.core.rule.TypeDeclaration;
 import org.drools.core.spi.ObjectType;
-import org.drools.core.spi.PropagationContext;
 import org.drools.core.util.bitmask.AllSetBitMask;
 import org.drools.core.util.bitmask.BitMask;
 import org.drools.core.util.bitmask.EmptyBitMask;
-import org.kie.api.definition.rule.Rule;
-
-import java.io.Externalizable;
-import java.io.IOException;
-import java.io.ObjectInput;
-import java.io.ObjectOutput;
-import java.util.List;
 
 import static org.drools.core.reteoo.PropertySpecificUtil.*;
 
@@ -62,7 +59,8 @@ public abstract class AbstractTerminalNode extends BaseNode implements TerminalN
     public AbstractTerminalNode(int id, RuleBasePartitionId partitionId, boolean partitionsEnabled, LeftTupleSource source, final BuildContext context) {
         super(id, partitionId, partitionsEnabled);
         this.tupleSource = source;
-        context.getPathEndNodes().add(this);
+        context.addPathEndNode(this);
+        initMemoryId( context );
     }
 
     public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
@@ -118,7 +116,7 @@ public abstract class AbstractTerminalNode extends BaseNode implements TerminalN
             // if property specific is not on, then accept all modification propagations
             setDeclaredMask( AllSetBitMask.get() );
         } else  {
-            List<String> settableProperties = getSettableProperties(context.getKnowledgeBase(), objectClass);
+            List<String> settableProperties = getAccessibleProperties( context.getKnowledgeBase(), objectClass );
             setDeclaredMask( calculatePositiveMask(pattern.getListenedProperties(), settableProperties) );
             setNegativeMask( calculateNegativeMask(pattern.getListenedProperties(), settableProperties) );
         }
@@ -140,19 +138,11 @@ public abstract class AbstractTerminalNode extends BaseNode implements TerminalN
         return tupleSource instanceof FromNode ? tupleSource.getLeftTupleSource() : tupleSource;
     }
 
-    public void modifyLeftTuple(InternalFactHandle factHandle,
-                                ModifyPreviousTuples modifyPreviousTuples,
-                                PropagationContext context,
-                                InternalWorkingMemory workingMemory) {
-        LeftTupleSourceUtils.doModifyLeftTuple(factHandle, modifyPreviousTuples, context, workingMemory,
-                                               this, getLeftInputOtnId(), inferredMask);
-    }
-    
     public abstract RuleImpl getRule();
     
 
     public PathMemory createMemory(RuleBaseConfiguration config, InternalWorkingMemory wm) {
-        PathMemory pmem = new PathMemory(this);
+        PathMemory pmem = new PathMemory(this, wm);
         initPathMemory(pmem, null, wm, null);
         return pmem;
     }
@@ -160,12 +150,12 @@ public abstract class AbstractTerminalNode extends BaseNode implements TerminalN
     /**
      * Creates and return the node memory
      */
-    public static void initPathMemory(PathMemory pmem, LeftTupleSource startTupleSource, InternalWorkingMemory wm, Rule removingRule) {
+    public static void initPathMemory(PathMemory pmem, LeftTupleSource startTupleSource, InternalWorkingMemory wm, TerminalNode removingTN) {
         int counter = 1;
         long allLinkedTestMask = 0;
 
         LeftTupleSource tupleSource = pmem.getPathEndNode().getLeftTupleSource();
-        if ( SegmentUtilities.isRootNode(pmem.getPathEndNode(), removingRule)) {
+        if ( SegmentUtilities.isRootNode(pmem.getPathEndNode(), removingTN)) {
             counter++;
         }
 
@@ -201,7 +191,7 @@ public abstract class AbstractTerminalNode extends BaseNode implements TerminalN
                 }
             }
 
-            if ( SegmentUtilities.isRootNode( tupleSource, removingRule ) ) {
+            if ( SegmentUtilities.isRootNode( tupleSource, removingTN ) ) {
                 updateBitInNewSegment = true; // allow bit to be set for segment
                 allLinkedTestMask = allLinkedTestMask << 1;
                 counter++;
@@ -313,7 +303,35 @@ public abstract class AbstractTerminalNode extends BaseNode implements TerminalN
         return pathNodes;
     }
 
+    public final boolean hasPathNode(LeftTupleNode node) {
+        for (LeftTupleNode pathNode : getPathNodes()) {
+            if (node.getId() == pathNode.getId()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public final boolean isTerminalNodeOf(LeftTupleNode node) {
+        for (PathEndNode pathEndNode : getPathEndNodes()) {
+            if (pathEndNode.hasPathNode( node )) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public LeftTupleSinkPropagator getSinkPropagator() {
         return EmptyLeftTupleSinkAdapter.getInstance();
+    }
+
+    @Override
+    public final void setPartitionIdWithSinks( RuleBasePartitionId partitionId ) {
+        this.partitionId = partitionId;
+    }
+
+    @Override
+    public ObjectTypeNode getObjectTypeNode() {
+        return getLeftTupleSource().getObjectTypeNode();
     }
 }

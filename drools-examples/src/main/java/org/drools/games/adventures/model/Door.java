@@ -16,9 +16,7 @@
 package org.drools.games.adventures.model;
 
 import org.kie.api.definition.type.Position;
-import org.kie.api.definition.type.PropertyReactive;
 
-@PropertyReactive
 public class Door extends Thing {
     @Position(2)
     private Room fromRoom;
@@ -33,7 +31,7 @@ public class Door extends Thing {
     private Key key;
 
     public Door(Room fromRoom, Room toRoom) {
-        super( "Door from " + fromRoom.getName() +" to "+ toRoom.toString() );
+        super( "Door from " + fromRoom.getName() +" to "+ toRoom.toString(), false );
         this.fromRoom = fromRoom;
         this.toRoom = toRoom;
         lockStatus = LockStatus.UNLOCKED;

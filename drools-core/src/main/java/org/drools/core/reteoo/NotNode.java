@@ -126,11 +126,6 @@ public class NotNode extends BetaNode {
         return "[NotNode(" + this.getId() + ") - " + ((source != null) ? source.getObjectType() : "<source from a subnetwork>") + "]";
     }
 
-    @Override
-    public void assertRightTuple(RightTuple rightTuple, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
     public void assertObject( final InternalFactHandle factHandle,
                               final PropagationContext pctx,
                               final InternalWorkingMemory wm ) {
@@ -142,15 +137,15 @@ public class NotNode extends BetaNode {
 
         rightTuple.setPropagationContext(pctx);
 
-        // strangely we link here, this is actually just to force a network evaluation
-        // The assert is then processed and the rule unlinks then.
-        // This is because we need the first RightTuple to link with it's blocked
-        if ( memory.getStagedRightTuples().isEmpty() ) {
-            memory.setNodeDirtyWithoutNotify();
-        }
         boolean stagedInsertWasEmpty = memory.getStagedRightTuples().addInsert( rightTuple );
 
         if (  memory.getAndIncCounter() == 0 && isEmptyBetaConstraints()  ) {
+            // strangely we link here, this is actually just to force a network evaluation
+            // The assert is then processed and the rule unlinks then.
+            // This is because we need the first RightTuple to link with it's blocked
+            if ( stagedInsertWasEmpty ) {
+                memory.setNodeDirtyWithoutNotify();
+            }
             // NotNodes can only be unlinked, if they have no variable constraints
             memory.linkNode( wm );
         } else if ( stagedInsertWasEmpty ) {
@@ -158,7 +153,7 @@ public class NotNode extends BetaNode {
             memory.setNodeDirty(wm);
         }
 
-        flushLeftTupleIfNecessary(wm, memory.getSegmentMemory(), null, isStreamMode());
+        flushLeftTupleIfNecessary( wm, memory.getSegmentMemory(), isStreamMode() );
     }
 
     public void retractRightTuple(final RightTuple rightTuple,
@@ -175,18 +170,20 @@ public class NotNode extends BetaNode {
                                    final InternalWorkingMemory wm,
                                    final BetaMemory memory) {
         TupleSets<RightTuple> stagedRightTuples = memory.getStagedRightTuples();
-        if ( stagedRightTuples.isEmpty() ) {
-            memory.setNodeDirtyWithoutNotify();
-        }
         boolean stagedDeleteWasEmpty = stagedRightTuples.addDelete( rightTuple );
 
         if (  memory.getAndDecCounter() == 1 && isEmptyBetaConstraints()  ) {
+            if ( stagedDeleteWasEmpty ) {
+                memory.setNodeDirtyWithoutNotify();
+            }
             // NotNodes can only be unlinked, if they have no variable constraints
             memory.linkNode( wm );
         }  else if ( stagedDeleteWasEmpty ) {
             // nothing staged before, notify rule, so it can evaluate network
             memory.setNodeDirty( wm );
         }
+
+        flushLeftTupleIfNecessary( wm, memory.getSegmentMemory(), isStreamMode() );
     }
 
     @Override
@@ -201,21 +198,6 @@ public class NotNode extends BetaNode {
 
     @Override
     public void retractLeftTuple(LeftTuple leftTuple, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void modifyLeftTuple(InternalFactHandle factHandle, ModifyPreviousTuples modifyPreviousTuples, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void modifyLeftTuple(LeftTuple leftTuple, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void updateSink(LeftTupleSink sink, PropagationContext context, InternalWorkingMemory workingMemory) {
         throw new UnsupportedOperationException();
     }
 

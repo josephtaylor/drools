@@ -16,7 +16,6 @@
 package org.drools.compiler.phreak;
 
 import org.drools.core.RuleBaseConfiguration;
-import org.drools.core.common.EmptyBetaConstraints;
 import org.drools.core.common.InternalFactHandle;
 import org.drools.core.common.InternalWorkingMemory;
 import org.drools.core.definitions.InternalKnowledgePackage;
@@ -33,8 +32,6 @@ import org.drools.core.reteoo.SegmentMemory;
 import org.drools.core.reteoo.builder.BuildContext;
 import org.drools.core.rule.MVELDialectRuntimeData;
 import org.junit.Test;
-
-import java.beans.IntrospectionException;
 
 import static org.drools.compiler.phreak.Pair.t;
 
@@ -58,10 +55,8 @@ public class PhreakJoinNodeTest {
                 .setRightType( B.class )
                 .setConstraint( "object", "!=", "$object" ).build();
 
-        sinkNode = new JoinNode();
-        sinkNode.setId( 1 );
-        sinkNode.setConstraints( new EmptyBetaConstraints() );
-        
+        sinkNode = (JoinNode) BetaNodeBuilder.create( NodeTypeEnums.JoinNode, buildContext ).build();
+
         joinNode.addTupleSink( sinkNode );
 
         wm = ((StatefulKnowledgeSessionImpl)buildContext.getKnowledgeBase().newStatefulKnowledgeSession());
@@ -92,7 +87,7 @@ public class PhreakJoinNodeTest {
     B b4 = B.b(4);
 
     @Test
-    public void testInsertDelete() throws IntrospectionException {
+    public void testInsertDelete() {
         setupJoinNode();
 
         // @formatter:off
@@ -130,7 +125,7 @@ public class PhreakJoinNodeTest {
     }
 
     @Test
-    public void testStagedInsertDelete() throws IntrospectionException {
+    public void testStagedInsertDelete() {
         setupJoinNode();
 
         // @formatter:off
@@ -171,7 +166,7 @@ public class PhreakJoinNodeTest {
     }
 
     @Test
-    public void testStagedUpdate() throws IntrospectionException {
+    public void testStagedUpdate() {
         setupJoinNode();
 
         // @formatter:off
@@ -226,10 +221,9 @@ public class PhreakJoinNodeTest {
 
         KnowledgeBaseImpl rbase = new KnowledgeBaseImpl( "ID",
                                                          conf );
-        BuildContext buildContext = new BuildContext( rbase,
-                                                      rbase.getReteooBuilder().getIdGenerator() );
+        BuildContext buildContext = new BuildContext( rbase );
 
-        RuleImpl rule = new RuleImpl( "rule1", "org.pkg1", null );
+        RuleImpl rule = new RuleImpl( "rule1").setPackage( "org.pkg1" );
         InternalKnowledgePackage pkg = new KnowledgePackageImpl( "org.pkg1" );
         pkg.getDialectRuntimeRegistry().setDialectData( "mvel", new MVELDialectRuntimeData() );
         pkg.addRule( rule );

@@ -24,6 +24,8 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 
+import static org.drools.core.util.ClassUtils.safeLoadClass;
+
 public class ClassTypeResolver
     implements
     TypeResolver {
@@ -137,7 +139,7 @@ public class ClassTypeResolver
      *      java.lang.String)
      */
     /* (non-Javadoc)
-     * @see org.kie.semantics.java.TypeResolver#resolveType(java.lang.String)
+     * @see org.kie.semantics.java.TypeResolver#resolveVarType(java.lang.String)
      */
     public Class< ? > resolveType( String className, ClassFilter classFilter ) throws ClassNotFoundException {
         Class< ? > clazz = lookupFromCache( className );
@@ -176,16 +178,11 @@ public class ClassTypeResolver
 
         // try loading className
         if ( clazz == null ) {
-            try {
-                clazz = this.classLoader.loadClass( className );
-                if (!classFilter.accept(clazz)) {
-                    clazz = null;
-                }
-            } catch ( final ClassNotFoundException e ) {
+            clazz = safeLoadClass(this.classLoader, className);
+            if (clazz != null && !classFilter.accept(clazz)) {
                 clazz = null;
             }
         }
-
 
         // try as a nested class
         if ( clazz == null ) {
@@ -298,23 +295,13 @@ public class ClassTypeResolver
         }
 
         if ( qualifiedClass != null ) {
-            try {
-                clazz = this.classLoader.loadClass( qualifiedClass );
-            } catch ( final ClassNotFoundException e ) {
-                clazz = null;
-            }
+            clazz = safeLoadClass(this.classLoader, qualifiedClass);
 
             // maybe its a nested class?
             int lastIndex;
             while ( clazz == null && (lastIndex = qualifiedClass.lastIndexOf( '.' )) != -1 ) {
-                try {
-
-                    qualifiedClass = qualifiedClass.substring( 0,
-                                                               lastIndex ) + "$" + qualifiedClass.substring( lastIndex + 1 );
-                    clazz = this.classLoader.loadClass( qualifiedClass );
-                } catch ( final ClassNotFoundException e ) {
-                    clazz = null;
-                }
+                qualifiedClass = qualifiedClass.substring( 0, lastIndex ) + "$" + qualifiedClass.substring( lastIndex + 1 );
+                clazz = safeLoadClass(this.classLoader, qualifiedClass);
             }
 
         }

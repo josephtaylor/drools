@@ -24,11 +24,13 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.kie.api.KieBase;
 import org.kie.api.KieBaseConfiguration;
+import org.kie.api.KieServices;
 import org.kie.api.conf.EventProcessingOption;
 import org.kie.api.io.ResourceType;
 import org.kie.api.runtime.KieSession;
 import org.kie.api.runtime.KieSessionConfiguration;
 import org.kie.api.runtime.conf.ClockTypeOption;
+import org.kie.api.runtime.conf.TimedRuleExecutionOption;
 import org.kie.api.runtime.rule.EntryPoint;
 import org.kie.api.runtime.rule.FactHandle;
 import org.kie.api.runtime.rule.QueryResults;
@@ -37,10 +39,11 @@ import org.kie.internal.KnowledgeBase;
 import org.kie.internal.KnowledgeBaseFactory;
 import org.kie.internal.builder.KnowledgeBuilder;
 import org.kie.internal.builder.KnowledgeBuilderFactory;
-import org.kie.internal.builder.conf.RuleEngineOption;
 import org.kie.internal.io.ResourceFactory;
 import org.kie.internal.runtime.StatefulKnowledgeSession;
 import org.kie.internal.utils.KieHelper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Date;
@@ -60,6 +63,7 @@ import java.util.concurrent.TimeUnit;
  * This is a test case for multi-thred issues
  */
 public class MultithreadTest extends CommonTestMethodBase {
+    private static final Logger LOG = LoggerFactory.getLogger(MultithreadTest.class);
 
     @Test(timeout = 10000)
     public void testConcurrentInsertionsFewObjectsManyThreads() {
@@ -307,7 +311,6 @@ public class MultithreadTest extends CommonTestMethodBase {
 
         KieBaseConfiguration kbconf = KnowledgeBaseFactory.newKnowledgeBaseConfiguration();
         kbconf.setOption(EventProcessingOption.STREAM);
-        kbconf.setOption( RuleEngineOption.PHREAK );
         KnowledgeBase kbase = loadKnowledgeBaseFromString( kbconf, str );
         final StatefulKnowledgeSession ksession = kbase.newStatefulKnowledgeSession();
         final EntryPoint ep = ksession.getEntryPoint( "X" );
@@ -771,5 +774,95 @@ public class MultithreadTest extends CommonTestMethodBase {
         public String toString() {
             return "" + id;
         }
+    }
+
+    @Test(timeout = 10000)
+    public void testConcurrentFireAndDispose() throws InterruptedException {
+        // DROOLS-1103
+        String drl = "rule R no-loop timer( int: 1s )\n" +
+                     "when\n" +
+                     "    String()\n" +
+                     "then\n" +
+                     "end";
+
+        KieHelper helper = new KieHelper();
+        helper.addContent( drl, ResourceType.DRL );
+        KieBase kbase = helper.build( EventProcessingOption.STREAM );
+        KieSessionConfiguration ksconf = KieServices.Factory.get().newKieSessionConfiguration();
+        ksconf.setOption( TimedRuleExecutionOption.YES );
+        final KieSession ksession = kbase.newKieSession(ksconf, null);
+
+        Thread t1 = new Thread() {
+            @Override
+            public void run() {
+                LOG.info("before: sleep, dispose().");
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException _e) {
+                }
+                LOG.info("before: dispose().");
+                ksession.dispose();
+                LOG.info("after: dispose().");
+            }
+        };
+        t1.setDaemon(true);
+        t1.start();
+
+        try {
+            int i = 0;
+            LOG.info("before: while.");
+            while (true) {
+                ksession.insert("" + i++);
+                ksession.fireAllRules();
+            }
+        } catch (IllegalStateException e) {
+            // java.lang.IllegalStateException: Illegal method call. This session was previously disposed.
+            // ignore and exit
+            LOG.info("after: while.");
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            e.printStackTrace();
+            fail( "java.util.concurrent.RejectedExecutionException should not happen" );
+        }
+        LOG.info("last line of test.");
+    }
+
+    @Test(timeout = 10000)
+    public void testFireUntilHaltAndDispose() throws InterruptedException {
+        // DROOLS-1103
+        String drl = "rule R no-loop timer( int: 1s )\n" +
+                     "when\n" +
+                     "    String()\n" +
+                     "then\n" +
+                     "end";
+
+        KieHelper helper = new KieHelper();
+        helper.addContent( drl, ResourceType.DRL );
+        KieBase kbase = helper.build( EventProcessingOption.STREAM );
+        KieSessionConfiguration ksconf = KieServices.Factory.get().newKieSessionConfiguration();
+        ksconf.setOption( TimedRuleExecutionOption.YES );
+        final KieSession ksession = kbase.newKieSession(ksconf, null);
+
+        new Thread() {
+            @Override
+            public void run() {
+                ksession.fireUntilHalt();
+            }
+        }.start();
+
+        try {
+            Thread.sleep(100);
+        } catch (InterruptedException e) {
+            // do nothing
+        }
+
+        ksession.insert("xxx");
+
+        try {
+            Thread.sleep(100);
+        } catch (InterruptedException e) {
+            // do nothing
+        }
+
+        ksession.dispose();
     }
 }

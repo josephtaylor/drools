@@ -16,6 +16,11 @@
 
 package org.drools.core.common;
 
+import java.util.function.Consumer;
+import java.util.function.Predicate;
+
+import org.drools.core.WorkingMemoryEntryPoint;
+import org.drools.core.datasources.InternalDataSource;
 import org.drools.core.factmodel.traits.TraitTypeEnum;
 import org.drools.core.reteoo.LeftTuple;
 import org.drools.core.reteoo.RightTuple;
@@ -69,13 +74,11 @@ public interface InternalFactHandle
     TraitTypeEnum getTraitType();
     
     RightTuple getFirstRightTuple();
-    RightTuple getLastRightTuple();
 
     LeftTuple getFirstLeftTuple();
-    LeftTuple getLastLeftTuple();
 
-    InternalWorkingMemoryEntryPoint getEntryPoint();
-    void setEntryPoint( InternalWorkingMemoryEntryPoint ep );
+    WorkingMemoryEntryPoint getEntryPoint();
+    void setEntryPoint( WorkingMemoryEntryPoint ep );
     
     InternalFactHandle clone();
     
@@ -86,10 +89,6 @@ public interface InternalFactHandle
     void addFirstLeftTuple(LeftTuple leftTuple);
 
     void addLastLeftTuple( LeftTuple leftTuple );
-
-    void setFirstLeftTuple(LeftTuple leftTuple);
-
-    void setLastLeftTuple( LeftTuple leftTuple );
 
     void removeLeftTuple( LeftTuple leftTuple );
 
@@ -105,10 +104,77 @@ public interface InternalFactHandle
 
     void addTupleInPosition( Tuple tuple );
 
-    InternalFactHandle quickClone();
-
     boolean isNegated();
     void setNegated(boolean negated);
 
     <K> K as( Class<K> klass ) throws ClassCastException;
+
+    boolean isExpired();
+    boolean isPendingRemoveFromStore();
+
+    void forEachRightTuple(Consumer<RightTuple> rightTupleConsumer );
+    void forEachLeftTuple(Consumer<LeftTuple> leftTupleConsumer);
+
+    RightTuple findFirstRightTuple(Predicate<RightTuple> rightTuplePredicate );
+    LeftTuple findFirstLeftTuple(Predicate<LeftTuple> lefttTuplePredicate );
+
+    void setFirstLeftTuple( LeftTuple firstLeftTuple );
+
+    LinkedTuples detachLinkedTuples();
+    LinkedTuples detachLinkedTuplesForPartition(int i);
+
+    LinkedTuples getLinkedTuples();
+
+    interface LinkedTuples {
+        LinkedTuples clone();
+
+        void addFirstLeftTuple( LeftTuple leftTuple );
+        void addLastLeftTuple( LeftTuple leftTuple );
+
+        void addTupleInPosition( Tuple tuple );
+
+        void removeLeftTuple( LeftTuple leftTuple );
+
+        void addFirstRightTuple( RightTuple rightTuple );
+        void addLastRightTuple( RightTuple rightTuple );
+
+        void removeRightTuple( RightTuple rightTuple );
+
+        void clearLeftTuples();
+        void clearRightTuples();
+
+        void forEachRightTuple(Consumer<RightTuple> rightTupleConsumer);
+        RightTuple findFirstRightTuple(Predicate<RightTuple> rightTuplePredicate );
+
+        void forEachLeftTuple(Consumer<LeftTuple> leftTupleConsumer);
+        LeftTuple findFirstLeftTuple(Predicate<LeftTuple> leftTuplePredicate );
+
+        LeftTuple getFirstLeftTuple( int partition);
+        void setFirstLeftTuple( LeftTuple firstLeftTuple, int partition );
+
+        default LeftTuple getFirstLeftTuple(RuleBasePartitionId partitionId) {
+            return getFirstLeftTuple( partitionId.getParallelEvaluationSlot() );
+        }
+        default void setFirstLeftTuple( LeftTuple firstLeftTuple, RuleBasePartitionId partitionId ) {
+            setFirstLeftTuple( firstLeftTuple, partitionId.getParallelEvaluationSlot() );
+        }
+
+        RightTuple getFirstRightTuple(int partition);
+
+        default RightTuple getFirstRightTuple(RuleBasePartitionId partitionId) {
+            return getFirstRightTuple( partitionId.getParallelEvaluationSlot() );
+        }
+    }
+
+    default InternalDataSource<?> getDataSource() {
+        return null;
+    }
+
+    default InternalFactHandle getParentHandle() {
+        return null;
+    }
+
+    default void setParentHandle( InternalFactHandle parentHandle ) {
+        throw new UnsupportedOperationException();
+    }
 }

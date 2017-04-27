@@ -18,12 +18,11 @@ package org.drools.core.base;
 
 import org.drools.core.WorkingMemory;
 import org.drools.core.common.InternalFactHandle;
-import org.drools.core.common.InternalWorkingMemoryActions;
 import org.drools.core.definitions.rule.impl.RuleImpl;
 import org.drools.core.factmodel.traits.Thing;
 import org.drools.core.factmodel.traits.TraitableBean;
 import org.drools.core.impl.InternalKnowledgeBase;
-import org.drools.core.impl.StatefulKnowledgeSessionImpl;
+import org.kie.api.runtime.rule.RuleUnit;
 import org.drools.core.rule.Declaration;
 import org.drools.core.rule.GroupElement;
 import org.drools.core.spi.Activation;
@@ -48,14 +47,14 @@ public class SequentialKnowledgeHelper
 
     private static final long                  serialVersionUID = 510l;
 
-    private RuleImpl                           rule;
-    private GroupElement                       subrule;
-    private Activation                         activation;
-    private Tuple                              tuple;
-    private final InternalWorkingMemoryActions workingMemory;
+    private RuleImpl                                    rule;
+    private GroupElement                                subrule;
+    private Activation                                  activation;
+    private Tuple                                       tuple;
+    private final WrappedStatefulKnowledgeSessionForRHS workingMemory;
 
     public SequentialKnowledgeHelper(final WorkingMemory workingMemory) {
-        this.workingMemory = (InternalWorkingMemoryActions) workingMemory;
+        this.workingMemory = new WrappedStatefulKnowledgeSessionForRHS( workingMemory );
     }
 
     public void setActivation(final Activation agendaItem) {
@@ -103,7 +102,7 @@ public class SequentialKnowledgeHelper
     }
     
     public KnowledgeRuntime getKnowledgeRuntime() {
-        return (StatefulKnowledgeSessionImpl) this.workingMemory;
+        return this.workingMemory;
      }
 
     public KieRuntime getKieRuntime() {
@@ -200,12 +199,12 @@ public class SequentialKnowledgeHelper
     }
 
     @Override
-    public InternalFactHandle bolster( Object object, Object value ) {
+    public InternalFactHandle bolster( Object object ) {
         return null;
     }
 
     @Override
-    public InternalFactHandle bolster( Object object ) {
+    public InternalFactHandle bolster( Object object, Object value ) {
         return null;
     }
 
@@ -215,6 +214,10 @@ public class SequentialKnowledgeHelper
     }
 
     public void cancelRemainingPreviousLogicalDependencies() {
+    }
+
+    public FactHandle insertAsync( Object object ) {
+        return null;
     }
 
     public InternalFactHandle insert(Object object) {
@@ -322,4 +325,10 @@ public class SequentialKnowledgeHelper
     public void cancelMatch(Match match) {
         // TODO Auto-generated method stub
     }
+
+    public void run(RuleUnit ruleUnit ) { }
+    public void run(Class<? extends RuleUnit> ruleUnitClass) { }
+
+    public void guard(RuleUnit ruleUnit ) { }
+    public void guard(Class<? extends RuleUnit> ruleUnitClass) { }
 }

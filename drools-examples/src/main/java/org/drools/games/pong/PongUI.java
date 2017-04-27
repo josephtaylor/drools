@@ -20,6 +20,9 @@ import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.awt.event.WindowListener;
 import java.awt.font.FontRenderContext;
 import java.awt.font.TextLayout;
 import java.awt.image.BufferedImage;
@@ -40,11 +43,24 @@ public class PongUI extends GameUI {
         super(ksession, conf);
         this.pconf = (PongConfiguration) conf;
     }
+    
+    @Override
+    public void init() {
+        super.init();
+        registerWindowListenerOnFrame(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                getKieSession().halt();
+            }
+        });
+    }
 
     public void drawGame(Ball ball, Bat bat1, Bat bat2, Player p1, Player p2) {
-        clearMovingBall(ball);
-        clearBat(bat1);
-        clearBat(bat2);
+        Graphics tableG = getGraphics(); //ui.getTablePanel().getTableG();
+        tableG.setColor( Color.BLACK ); // background
+        tableG.fillRect(0,0, getWidth(), getHeight() );
+
+        tableG.setColor( Color.WHITE ); // background
 
         drawScore( p1, 100 );
         drawScore( p2, pconf.getTableWidth()-120 );
@@ -56,27 +72,8 @@ public class PongUI extends GameUI {
         repaint();
     }
 
-    public void clearBall(Ball ball) {
-        Graphics g = getGraphics();
-        g.setColor( Color.BLACK ); // background
-        g.clearRect(ball.getX(), ball.getY(), ball.getWidth(), ball.getWidth());
-    }
-
-    public void clearMovingBall(Ball ball) {
-        Graphics g = getGraphics();
-        g.setColor( Color.BLACK ); // background
-        g.clearRect(ball.getX()-(ball.getDx()*ball.getSpeed()), ball.getY()-(ball.getDy()*ball.getSpeed()), ball.getWidth(), ball.getWidth());
-    }
-
-    public void clearBat(Bat bat) {
-        Graphics g = getGraphics();
-        g.setColor( Color.BLACK ); // background
-        g.clearRect(bat.getX(), bat.getY()-bat.getDy(), bat.getWidth(), bat.getHeight());
-    }
-
     public void drawTable() {
         Graphics tableG = getGraphics(); //ui.getTablePanel().getTableG();
-        tableG.setColor( Color.WHITE ); // background
 
         int padding = pconf.getPadding();
         int tableWidth = pconf.getTableWidth();

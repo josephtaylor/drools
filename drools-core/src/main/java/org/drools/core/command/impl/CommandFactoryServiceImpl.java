@@ -20,10 +20,14 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import org.drools.core.command.NewKnowledgeBuilderConfigurationCommand;
+import org.drools.core.command.runtime.AdvanceSessionTimeCommand;
 import org.drools.core.command.runtime.BatchExecutionCommandImpl;
+import org.drools.core.command.runtime.DisposeCommand;
 import org.drools.core.command.runtime.GetGlobalCommand;
+import org.drools.core.command.runtime.GetSessionTimeCommand;
 import org.drools.core.command.runtime.KBuilderSetPropertyCommand;
 import org.drools.core.command.runtime.SetGlobalCommand;
 import org.drools.core.command.runtime.process.AbortWorkItemCommand;
@@ -43,10 +47,10 @@ import org.drools.core.command.runtime.rule.FireAllRulesCommand;
 import org.drools.core.command.runtime.rule.FromExternalFactHandleCommand;
 import org.drools.core.command.runtime.rule.GetFactHandleCommand;
 import org.drools.core.command.runtime.rule.GetFactHandleInEntryPointCommand;
+import org.drools.core.command.runtime.rule.GetFactHandlesCommand;
 import org.drools.core.command.runtime.rule.GetObjectCommand;
 import org.drools.core.command.runtime.rule.GetObjectsCommand;
 import org.drools.core.command.runtime.rule.InsertElementsCommand;
-import org.drools.core.command.runtime.DisposeCommand;
 import org.drools.core.command.runtime.rule.InsertObjectCommand;
 import org.drools.core.command.runtime.rule.ModifyCommand;
 import org.drools.core.command.runtime.rule.ModifyCommand.SetterImpl;
@@ -258,7 +262,7 @@ public class CommandFactoryServiceImpl implements ExtendedKieCommands {
     }
 
     public BatchExecutionCommand newBatchExecution(List<? extends Command> commands, String lookup) {
-        return new BatchExecutionCommandImpl((List<GenericCommand<?>>) commands, lookup);
+        return new BatchExecutionCommandImpl( commands, lookup );
     }
 
     @Deprecated
@@ -287,6 +291,30 @@ public class CommandFactoryServiceImpl implements ExtendedKieCommands {
         return new AgendaGroupSetFocusCommand(name);
     }
 
+    @Override
+    public Command newGetFactHandles() {
+        return new GetFactHandlesCommand();
+    }
+
+    @Override
+    public Command newGetFactHandles(String outIdentifier) {
+        GetFactHandlesCommand factHandlesCommand = new GetFactHandlesCommand();
+        factHandlesCommand.setOutIdentifier(outIdentifier);
+        return factHandlesCommand;
+    }
+
+    @Override
+    public Command newGetFactHandles(ObjectFilter filter) {
+        return new GetFactHandlesCommand(filter);
+    }
+
+    @Override
+    public Command newGetFactHandles(ObjectFilter filter, String outIdentifier) {
+        GetFactHandlesCommand factHandlesCommand = new GetFactHandlesCommand(filter);
+        factHandlesCommand.setOutIdentifier(outIdentifier);
+        return factHandlesCommand;
+    }
+
     public Command newClearActivationGroup(String name) {
         return new ClearActivationGroupCommand(name);
     }
@@ -313,5 +341,23 @@ public class CommandFactoryServiceImpl implements ExtendedKieCommands {
         return new EnableAuditLogCommand( null, filename );
     }
 
+    @Override
+    public Command<Long> newGetSessionTime() {
+        return new GetSessionTimeCommand();
+    }
 
+    @Override
+    public Command<Long> newGetSessionTime(String outIdentifier) {
+        return new GetSessionTimeCommand(outIdentifier);
+    }
+
+    @Override
+    public Command<Long> newAdvanceSessionTime(long amount, TimeUnit unit) {
+        return new AdvanceSessionTimeCommand( amount, unit );
+    }
+
+    @Override
+    public Command<Long> newAdvanceSessionTime(long amount, TimeUnit unit, String outIdentifier) {
+        return new AdvanceSessionTimeCommand( outIdentifier, amount, unit );
+    }
 }

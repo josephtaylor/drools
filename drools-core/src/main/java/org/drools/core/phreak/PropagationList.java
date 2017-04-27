@@ -25,11 +25,11 @@ public interface PropagationList {
     void flush();
     void flush( PropagationEntry currentHead );
 
-    void flushNonMarshallable();
-
     void reset();
 
     boolean isEmpty();
+
+    boolean hasEntriesDeferringExpiration();
 
     Iterator<PropagationEntry> iterator();
 
@@ -38,4 +38,6 @@ public interface PropagationList {
     void notifyWaitOnRest();
 
     void onEngineInactive();
+
+    void dispose();
 }

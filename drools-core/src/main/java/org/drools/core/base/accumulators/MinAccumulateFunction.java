@@ -22,12 +22,10 @@ import java.io.ObjectInput;
 import java.io.ObjectOutput;
 import java.io.Serializable;
 
-import org.kie.api.runtime.rule.AccumulateFunction;
-
 /**
  * An implementation of an accumulator capable of calculating minimun values
  */
-public class MinAccumulateFunction implements AccumulateFunction {
+public class MinAccumulateFunction extends AbstractAccumulateFunction<MinAccumulateFunction.MinData> {
 
     public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
 
@@ -38,70 +36,49 @@ public class MinAccumulateFunction implements AccumulateFunction {
     }
 
     protected static class MinData implements Externalizable {
-        public double min = Double.MAX_VALUE;
+        public Comparable min = null;
         
         public MinData() {}
 
         public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
-            min   = in.readDouble();
+            min = (Comparable) in.readObject();
         }
 
         public void writeExternal(ObjectOutput out) throws IOException {
-            out.writeDouble(min);
+            out.writeObject(min);
         }
     }
 
-    /* (non-Javadoc)
-     * @see org.kie.base.accumulators.AccumulateFunction#createContext()
-     */
-    public Serializable createContext() {
+    public MinData createContext() {
         return new MinData();
     }
 
-    /* (non-Javadoc)
-     * @see org.kie.base.accumulators.AccumulateFunction#init(java.lang.Object)
-     */
-    public void init(Serializable context) throws Exception {
-        MinData data = (MinData) context;
-        data.min = Double.MAX_VALUE;
+    public void init(MinData data) {
+        data.min = null;
     }
 
-    /* (non-Javadoc)
-     * @see org.kie.base.accumulators.AccumulateFunction#accumulate(java.lang.Object, java.lang.Object)
-     */
-    public void accumulate(Serializable context,
+    public void accumulate(MinData data,
                            Object value) {
-        MinData data = (MinData) context;
-        data.min = Math.min( data.min, ((Number)value).doubleValue() );
+        if (value != null) {
+            data.min = data.min == null || data.min.compareTo( value ) > 0 ?
+                       (Comparable) value :
+                       data.min;
+        }
     }
 
-    /* (non-Javadoc)
-     * @see org.kie.base.accumulators.AccumulateFunction#reverse(java.lang.Object, java.lang.Object)
-     */
-    public void reverse(Serializable context,
-                        Object value) throws Exception {
+    public void reverse(MinData data,
+                        Object value) {
     }
 
-    /* (non-Javadoc)
-     * @see org.kie.base.accumulators.AccumulateFunction#getResult(java.lang.Object)
-     */
-    public Object getResult(Serializable context) throws Exception {
-        MinData data = (MinData) context;
-        return new Double( data.min );
+    public Object getResult(MinData data) {
+        return data.min;
     }
 
-    /* (non-Javadoc)
-     * @see org.kie.base.accumulators.AccumulateFunction#supportsReverse()
-     */
     public boolean supportsReverse() {
         return false;
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    public Class< ? > getResultType() {
-        return Number.class;
+    public Class<?> getResultType() {
+        return Comparable.class;
     }
-
 }

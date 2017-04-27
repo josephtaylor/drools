@@ -16,6 +16,18 @@
 
 package org.drools.core.reteoo.test;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.Reader;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+
 import junit.framework.AssertionFailedError;
 import org.antlr.runtime.ANTLRInputStream;
 import org.antlr.runtime.ANTLRReaderStream;
@@ -40,7 +52,6 @@ import org.drools.core.reteoo.AccumulateNode;
 import org.drools.core.reteoo.AccumulateNode.AccumulateMemory;
 import org.drools.core.reteoo.BetaMemory;
 import org.drools.core.reteoo.BetaNode;
-import org.drools.core.reteoo.EntryPointNode;
 import org.drools.core.reteoo.LeftTuple;
 import org.drools.core.reteoo.LeftTupleImpl;
 import org.drools.core.reteoo.LeftTupleSink;
@@ -93,18 +104,6 @@ import org.junit.runner.notification.Failure;
 import org.junit.runner.notification.RunNotifier;
 import org.junit.runner.notification.StoppedByUserException;
 import org.mvel2.MVEL;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.Reader;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
 
 public class ReteDslTestEngine {
 
@@ -257,10 +256,9 @@ public class ReteDslTestEngine {
 
         KnowledgeBaseImpl rbase = new KnowledgeBaseImpl( "ID",
                                                          conf );
-        BuildContext buildContext = new BuildContext( rbase,
-                                                      rbase.getReteooBuilder().getIdGenerator() );
+        BuildContext buildContext = new BuildContext( rbase );
 
-        RuleImpl rule = new RuleImpl("rule1", "org.pkg1", null);
+        RuleImpl rule = new RuleImpl("rule1").setPackage( "org.pkg1");
         InternalKnowledgePackage pkg = new KnowledgePackageImpl( "org.pkg1" );
         pkg.getDialectRuntimeRegistry().setDialectData( "mvel", new MVELDialectRuntimeData() );
         pkg.addRule( rule );
@@ -351,10 +349,6 @@ public class ReteDslTestEngine {
                           Map<String, Object> context,
                           InternalWorkingMemory wm) {
         
-        final boolean lrUnlinkingEnabled = ((BuildContext) context
-                .get( BUILD_CONTEXT )).getKnowledgeBase().getConfiguration()
-                .isPhreakEnabled();
-
         try {
             List<String[]> cmds = step.getCommands();
             List<InternalFactHandle> handles = (List<InternalFactHandle>) context.get( "Handles" );
@@ -383,7 +377,7 @@ public class ReteDslTestEngine {
                         throw new AssertionFailedError( "line " + step.getLine()
                                                         + ": left Memory expected [] actually "
                                                         + print( leftMemory,
-                                                                 lrUnlinkingEnabled ) );
+                                                                 true ) );
                     } else if ( expectedLeftTuples.isEmpty()
                                 && leftMemory.size() == 0 ) {
                         continue;
@@ -408,20 +402,17 @@ public class ReteDslTestEngine {
                         leftTuples.add( leftTuple );
                     }
                     
-                    if ( lrUnlinkingEnabled ) {
-                        // When L&R Unlinking is active, we need to sort the
-                        // tuples here,
-                        // because we might have asserted things in the wrong
-                        // order,
-                        // since linking a node's side means populating its
-                        // memory
-                        // from the OTN which stores things in a hash-set, so
-                        // insertion order is not kept.
-                        Collections.sort( leftTuples,
-                                          new TupleComparator() );
+                    // When L&R Unlinking is active, we need to sort the
+                    // tuples here,
+                    // because we might have asserted things in the wrong
+                    // order,
+                    // since linking a node's side means populating its
+                    // memory
+                    // from the OTN which stores things in a hash-set, so
+                    // insertion order is not kept.
+                    Collections.sort( leftTuples,
+                                      new TupleComparator() );
 
-                    }
-                    
                     List<List<InternalFactHandle>> actualLeftTuples = getHandlesList( leftTuples );
 
 
@@ -688,7 +679,7 @@ public class ReteDslTestEngine {
 
                         if ( element instanceof InternalFactHandle ) {
                             InternalFactHandle handle = (InternalFactHandle) element;
-                            PropagationContext pContext = pctxFactory.createPropagationContext(wm.getNextPropagationIdCounter(), PropagationContext.INSERTION,
+                            PropagationContext pContext = pctxFactory.createPropagationContext(wm.getNextPropagationIdCounter(), PropagationContext.Type.INSERTION,
                                                                                                null, null, handle);
                             ((ObjectSink) sink).assertObject( handle,
                                                               pContext,
@@ -698,7 +689,7 @@ public class ReteDslTestEngine {
                             List<InternalFactHandle> tlist = (List<InternalFactHandle>) element;
                             LeftTuple tuple = createTuple( context,
                                                            tlist );
-                            PropagationContext pContext = pctxFactory.createPropagationContext(wm.getNextPropagationIdCounter(), PropagationContext.INSERTION,
+                            PropagationContext pContext = pctxFactory.createPropagationContext(wm.getNextPropagationIdCounter(), PropagationContext.Type.INSERTION,
                                                                                                null, tuple, null);
                             ((LeftTupleSink) sink).assertLeftTuple( tuple,
                                                                     pContext,
@@ -783,20 +774,16 @@ public class ReteDslTestEngine {
 
                         if ( element instanceof InternalFactHandle ) {
                             InternalFactHandle handle = (InternalFactHandle) element;
-                            PropagationContext pContext = pctxFactory.createPropagationContext(wm.getNextPropagationIdCounter(), PropagationContext.DELETION,
+                            PropagationContext pContext = pctxFactory.createPropagationContext(wm.getNextPropagationIdCounter(), PropagationContext.Type.DELETION,
                                                                                                null, null, handle);
                             if ( sink instanceof ObjectTypeNode ) {
                                 ((ObjectTypeNode) sink).retractObject( handle,
                                                                        pContext,
                                                                        wm );
                             } else {
-                                for ( RightTuple rightTuple = handle.getFirstRightTuple(); rightTuple != null; rightTuple = (RightTuple) rightTuple.getHandleNext() ) {
-                                    rightTuple.retractTuple( pContext, wm );
-                                }
+                                handle.forEachRightTuple( rt -> rt.retractTuple( pContext, wm ) );
                                 handle.clearRightTuples();
-                                for ( LeftTuple leftTuple = handle.getFirstLeftTuple(); leftTuple != null; leftTuple = (LeftTuple) leftTuple.getHandleNext() ) {
-                                    leftTuple.retractTuple( pContext, wm );
-                                }
+                                handle.forEachLeftTuple( lt -> lt.retractTuple( pContext, wm ) );
                                 handle.clearLeftTuples();
                             }
                             pContext.evaluateActionQueue( wm );
@@ -807,7 +794,7 @@ public class ReteDslTestEngine {
                             if ( tuple == null ) {
                                 throw new IllegalArgumentException( "Tuple not found: " + id + " : " + tlist.toString() );
                             }
-                            PropagationContext pContext = pctxFactory.createPropagationContext(wm.getNextPropagationIdCounter(), PropagationContext.DELETION,
+                            PropagationContext pContext = pctxFactory.createPropagationContext(wm.getNextPropagationIdCounter(), PropagationContext.Type.DELETION,
                                                                                                null, tuple, null);
                             ((LeftTupleSink) sink).retractLeftTuple( tuple,
                                                                      pContext,
@@ -861,13 +848,9 @@ public class ReteDslTestEngine {
 
                         if ( element instanceof InternalFactHandle ) {
                             InternalFactHandle handle = (InternalFactHandle) element;
-                            PropagationContext pContext = pctxFactory.createPropagationContext(wm.getNextPropagationIdCounter(), PropagationContext.MODIFICATION,
+                            PropagationContext pContext = pctxFactory.createPropagationContext(wm.getNextPropagationIdCounter(), PropagationContext.Type.MODIFICATION,
                                                                                                null, null, handle);
-                            ModifyPreviousTuples modifyPreviousTuples = new ModifyPreviousTuples( handle.getFirstLeftTuple(),
-                                                                                                  handle.getFirstRightTuple(),
-                                                                                                  new EntryPointNode() );
-                            handle.clearRightTuples();
-                            handle.clearLeftTuples();
+                            ModifyPreviousTuples modifyPreviousTuples = new ModifyPreviousTuples( handle.detachLinkedTuples() );
                             ((ObjectSink) sink).modifyObject( handle,
                                                               modifyPreviousTuples,
                                                               pContext,
@@ -882,11 +865,8 @@ public class ReteDslTestEngine {
                             if ( tuple == null ) {
                                 throw new IllegalArgumentException( "Tuple not found: " + id + " : " + tlist.toString() );
                             }
-                            PropagationContext pContext = pctxFactory.createPropagationContext(wm.getNextPropagationIdCounter(), PropagationContext.MODIFICATION,
+                            PropagationContext pContext = pctxFactory.createPropagationContext(wm.getNextPropagationIdCounter(), PropagationContext.Type.MODIFICATION,
                                                                                                null, tuple, new DefaultFactHandle(1, ""));
-                            ((LeftTupleSink) sink).modifyLeftTuple( tuple,
-                                                                    pContext,
-                                                                    wm );
                             pContext.evaluateActionQueue( wm );
                         }
                     }

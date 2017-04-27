@@ -16,6 +16,13 @@
 
 package org.drools.core.common;
 
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
+
 import org.drools.core.base.ClassObjectType;
 import org.drools.core.definitions.InternalKnowledgePackage;
 import org.drools.core.definitions.rule.impl.RuleImpl;
@@ -29,14 +36,6 @@ import org.drools.core.spi.ObjectType;
 import org.drools.core.spi.PropagationContext;
 import org.drools.core.spi.Tuple;
 import org.drools.core.util.bitmask.BitMask;
-import org.kie.api.runtime.rule.FactHandle;
-
-import java.io.IOException;
-import java.io.ObjectInput;
-import java.io.ObjectOutput;
-import java.util.Collections;
-import java.util.LinkedList;
-import java.util.List;
 
 import static org.drools.core.reteoo.PropertySpecificUtil.*;
 
@@ -46,7 +45,7 @@ public class PhreakPropagationContext
 
     private static final long               serialVersionUID = 510l;
 
-    private int                             type;
+    private Type                            type;
 
     private RuleImpl                        rule;
 
@@ -62,24 +61,24 @@ public class PhreakPropagationContext
 
     private int                             originOffset;
 
-    private BitMask                         modificationMask = allSetButTraitBitMask();
+    private BitMask                         modificationMask = allSetBitMask();
 
-    private BitMask                         originalMask = allSetButTraitBitMask();
+    private BitMask                         originalMask = allSetBitMask();
 
     private Class<?>                        modifiedClass;
-
-    private ObjectType                      objectType;
 
     // this field is only set for propagations happening during
     // the deserialization of a session
     private transient MarshallerReaderContext readerContext;
+
+    private transient boolean marshalling;
 
     public PhreakPropagationContext() {
 
     }
 
     public PhreakPropagationContext(final long number,
-                                    final int type,
+                                    final Type type,
                                     final RuleImpl rule,
                                     final Tuple leftTuple,
                                     final InternalFactHandle factHandle) {
@@ -89,14 +88,14 @@ public class PhreakPropagationContext
               leftTuple,
               factHandle,
               EntryPointId.DEFAULT,
-              allSetButTraitBitMask(),
+              allSetBitMask(),
               Object.class,
               null );
         this.originOffset = -1;
     }
 
     public PhreakPropagationContext(final long number,
-                                    final int type,
+                                    final Type type,
                                     final RuleImpl rule,
                                     final Tuple leftTuple,
                                     final InternalFactHandle factHandle,
@@ -107,13 +106,13 @@ public class PhreakPropagationContext
               leftTuple,
               factHandle,
               entryPoint,
-              allSetButTraitBitMask(),
+              allSetBitMask(),
               Object.class,
               null );
     }
 
     public PhreakPropagationContext(final long number,
-                                    final int type,
+                                    final Type type,
                                     final RuleImpl rule,
                                     final Tuple leftTuple,
                                     final InternalFactHandle factHandle,
@@ -133,7 +132,7 @@ public class PhreakPropagationContext
     }
 
     public PhreakPropagationContext(final long number,
-                                    final int type,
+                                    final Type type,
                                     final RuleImpl rule,
                                     final Tuple leftTuple,
                                     final InternalFactHandle factHandle,
@@ -145,13 +144,13 @@ public class PhreakPropagationContext
               leftTuple,
               factHandle,
               entryPoint,
-              allSetButTraitBitMask(),
+              allSetBitMask(),
               Object.class,
               readerContext );
     }
 
     public PhreakPropagationContext(final long number,
-                                    final int type,
+                                    final Type type,
                                     final RuleImpl rule,
                                     final Tuple leftTuple,
                                     final InternalFactHandle factHandle,
@@ -175,7 +174,7 @@ public class PhreakPropagationContext
 
     public void readExternal(ObjectInput in) throws IOException,
                                             ClassNotFoundException {
-        this.type = in.readInt();
+        this.type = (Type) in.readObject();
         this.propagationNumber = in.readLong();
         this.rule = (RuleImpl) in.readObject();
         this.leftTuple = (LeftTuple) in.readObject();
@@ -185,7 +184,7 @@ public class PhreakPropagationContext
     }
 
     public void writeExternal(ObjectOutput out) throws IOException {
-        out.writeInt( this.type );
+        out.writeObject( this.type );
         out.writeLong( this.propagationNumber );
         out.writeObject( this.rule );
         out.writeObject( this.leftTuple );
@@ -215,34 +214,24 @@ public class PhreakPropagationContext
         return terminalNodeOrigin;
     }
 
-    public org.kie.api.definition.rule.Rule getRule() {
-        return this.rule;
-    }
-
     public Tuple getLeftTupleOrigin() {
         return this.leftTuple;
     }
 
-    public FactHandle getFactHandle() {
+    public InternalFactHandle getFactHandle() {
         return this.factHandle;
     }
     
-    public void setFactHandle(FactHandle factHandle) {
-        this.factHandle = (InternalFactHandle) factHandle;
+    public void setFactHandle(InternalFactHandle factHandle) {
+        this.factHandle = factHandle;
     }    
 
-    /*
-     * (non-Javadoc)
-     *
-     * @see org.kie.reteoo.PropagationContext#getType()
-     */
-    public int getType() {
+    public Type getType() {
         return this.type;
     }
 
     public void releaseResources() {
         this.leftTuple = null;
-        //this.rule = null;
     }
 
     /**
@@ -257,10 +246,6 @@ public class PhreakPropagationContext
      */
     public void setEntryPoint(EntryPointId entryPoint) {
         this.entryPoint = entryPoint;
-    }
-
-    public void setFactHandle(InternalFactHandle factHandle) {
-        this.factHandle = factHandle;
     }
 
     public int getOriginOffset() {
@@ -326,8 +311,8 @@ public class PhreakPropagationContext
             return this;
         }
 
-        List<String> typeClassProps = getSettableProperties(workingMemory, classType, pkgName);
-        List<String> modifiedClassProps = getSettableProperties( workingMemory, modifiedClass );
+        List<String> typeClassProps = getAccessibleProperties( workingMemory, classType, pkgName );
+        List<String> modifiedClassProps = getAccessibleProperties( workingMemory, modifiedClass );
         modificationMask = getEmptyPropertyReactiveMask(typeClassProps.size());
 
         for (int i = 0; i < modifiedClassProps.size(); i++) {
@@ -348,46 +333,45 @@ public class PhreakPropagationContext
         return this;
     }
 
-    private List<String> getSettableProperties(InternalWorkingMemory workingMemory, Class<?> classType) {
-        return getSettableProperties(workingMemory, classType, classType.getPackage().getName());
+    private List<String> getAccessibleProperties( InternalWorkingMemory workingMemory, Class<?> classType ) {
+        return getAccessibleProperties( workingMemory, classType, classType.getPackage().getName() );
     }
 
-    private List<String> getSettableProperties(InternalWorkingMemory workingMemory, Class<?> classType, String pkgName) {
+    private List<String> getAccessibleProperties( InternalWorkingMemory workingMemory, Class<?> classType, String pkgName ) {
         if ( pkgName.equals( "java.lang" ) || pkgName.equals( "java.util" ) ) {
             return Collections.EMPTY_LIST;
         }
         InternalKnowledgePackage pkg = workingMemory.getKnowledgeBase().getPackage( pkgName );
         TypeDeclaration tdecl =  pkg != null ? pkg.getTypeDeclaration( classType ) : null;
-        return tdecl != null ? tdecl.getSettableProperties() : Collections.EMPTY_LIST;
-    }
-
-    public ObjectType getObjectType() {
-        return objectType;
-    }
-
-    public void setObjectType(ObjectType objectType) {
-        this.objectType = objectType;
+        return tdecl != null ? tdecl.getAccessibleProperties() : Collections.EMPTY_LIST;
     }
 
     public MarshallerReaderContext getReaderContext() {
         return this.readerContext;
     }
 
+    public boolean isMarshalling() {
+        return marshalling;
+    }
 
-    public static String intEnumToString(PropagationContext pctx) {
+    public void setMarshalling( boolean marshalling ) {
+        this.marshalling = marshalling;
+    }
+
+    public static String intEnumToString( PropagationContext pctx ) {
         String pctxType = null;
         switch( pctx.getType() ) {
-            case PropagationContext.INSERTION:
+            case INSERTION:
                 return "INSERTION";
-            case PropagationContext.RULE_ADDITION:
+            case RULE_ADDITION:
                 return "RULE_ADDITION";
-            case PropagationContext.MODIFICATION:
+            case MODIFICATION:
                 return "MODIFICATION";
-            case PropagationContext.RULE_REMOVAL:
+            case RULE_REMOVAL:
                 return "RULE_REMOVAL";
-            case PropagationContext.DELETION:
+            case DELETION:
                 return "DELETION";
-            case PropagationContext.EXPIRATION:
+            case EXPIRATION:
                 return "EXPIRATION";
         }
         throw new IllegalStateException( "Int type unknown");

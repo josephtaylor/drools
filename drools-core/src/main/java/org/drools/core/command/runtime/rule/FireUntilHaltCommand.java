@@ -16,19 +16,28 @@
 
 package org.drools.core.command.runtime.rule;
 
-import org.drools.core.command.impl.GenericCommand;
-import org.drools.core.command.impl.KnowledgeCommandContext;
+import org.drools.core.command.impl.ExecutableCommand;
+import org.drools.core.command.impl.RegistryContext;
 import org.drools.core.command.runtime.UnpersistableCommand;
 import org.kie.api.runtime.KieSession;
 import org.kie.api.runtime.rule.AgendaFilter;
 import org.kie.api.runtime.rule.StatefulRuleSession;
-import org.kie.internal.command.Context;
+import org.kie.api.runtime.Context;
 
+import javax.xml.bind.annotation.XmlAccessType;
+import javax.xml.bind.annotation.XmlAccessorType;
+import javax.xml.bind.annotation.XmlRootElement;
+import javax.xml.bind.annotation.XmlTransient;
+
+@XmlRootElement
+@XmlAccessorType(XmlAccessType.NONE)
 public class FireUntilHaltCommand
-    implements
-    GenericCommand<Void>, UnpersistableCommand {
+	implements
+    ExecutableCommand<Void>, UnpersistableCommand {
     private static final long serialVersionUID = 510l;
 
+    @XmlTransient
+    // TODO: make sure that all drools AgendaFilter implementations are serializable
     private AgendaFilter agendaFilter = null;
 
     public FireUntilHaltCommand() {
@@ -38,8 +47,16 @@ public class FireUntilHaltCommand
         this.agendaFilter = agendaFilter;
     }
 
+    public AgendaFilter getAgendaFilter() {
+        return agendaFilter;
+    }
+
+    public void setAgendaFilter(AgendaFilter agendaFilter) {
+        this.agendaFilter = agendaFilter;
+    }
+
     public Void execute(Context context) {
-        KieSession ksession = ((KnowledgeCommandContext) context).getKieSession();
+        KieSession ksession = ((RegistryContext) context).lookup( KieSession.class );
         final StatefulRuleSession session = (StatefulRuleSession)ksession;
         
         new Thread(new Runnable() {

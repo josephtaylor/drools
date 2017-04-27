@@ -16,12 +16,22 @@
 
 package org.drools.core.reteoo;
 
+import java.io.Externalizable;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+
 import org.drools.core.RuleBaseConfiguration;
+import org.drools.core.base.ClassObjectType;
 import org.drools.core.common.BetaConstraints;
 import org.drools.core.common.InternalFactHandle;
 import org.drools.core.common.InternalWorkingMemory;
 import org.drools.core.common.Memory;
 import org.drools.core.common.WorkingMemoryAction;
+import org.drools.core.impl.InternalKnowledgeBase;
 import org.drools.core.marshalling.impl.PersisterHelper;
 import org.drools.core.marshalling.impl.ProtobufInputMarshaller;
 import org.drools.core.marshalling.impl.ProtobufInputMarshaller.TupleKey;
@@ -30,17 +40,16 @@ import org.drools.core.marshalling.impl.ProtobufMessages.FactHandle;
 import org.drools.core.reteoo.builder.BuildContext;
 import org.drools.core.rule.Accumulate;
 import org.drools.core.rule.ContextEntry;
+import org.drools.core.rule.Declaration;
+import org.drools.core.rule.TypeDeclaration;
 import org.drools.core.spi.Accumulator;
 import org.drools.core.spi.AlphaNodeFieldConstraint;
+import org.drools.core.spi.ObjectType;
 import org.drools.core.spi.PropagationContext;
 import org.drools.core.util.AbstractBaseLinkedListNode;
+import org.drools.core.util.bitmask.BitMask;
 
-import java.io.Externalizable;
-import java.io.IOException;
-import java.io.ObjectInput;
-import java.io.ObjectOutput;
-import java.util.Arrays;
-import java.util.Map;
+import static org.drools.core.reteoo.PropertySpecificUtil.calculatePositiveMask;
 
 /**
  * AccumulateNode
@@ -82,11 +91,31 @@ public class AccumulateNode extends BetaNode {
         this.unwrapRightObject = unwrapRightObject;
         this.tupleMemoryEnabled = context.isTupleMemoryEnabled();
 
+        addAccFunctionDeclarationsToLeftMask( context.getKnowledgeBase(), leftInput, accumulate );
+
         hashcode = this.leftInput.hashCode() ^
                    this.rightInput.hashCode() ^
                    this.accumulate.hashCode() ^
                    this.resultBinder.hashCode() ^
                    Arrays.hashCode( this.resultConstraints );
+
+    }
+
+    private void addAccFunctionDeclarationsToLeftMask( InternalKnowledgeBase kbase, LeftTupleSource leftInput, Accumulate accumulate ) {
+        BitMask leftMask = getLeftInferredMask();
+        ObjectType leftObjectType = leftInput.getObjectType();
+        if (leftObjectType instanceof ClassObjectType ) {
+            TypeDeclaration typeDeclaration = kbase.getExactTypeDeclaration( ((ClassObjectType) leftObjectType).getClassType() );
+            if (typeDeclaration != null && typeDeclaration.isPropertyReactive()) {
+                List<String> accessibleProperties = typeDeclaration.getAccessibleProperties();
+                for ( Declaration decl : accumulate.getRequiredDeclarations() ) {
+                    if ( leftObjectType.equals( decl.getPattern().getObjectType() ) ) {
+                        leftMask = leftMask.setAll( calculatePositiveMask( decl.getPattern().getListenedProperties(), accessibleProperties ) );
+                    }
+                }
+            }
+        }
+        setLeftInferredMask( leftMask );
     }
 
     public void readExternal( ObjectInput in ) throws IOException,
@@ -206,7 +235,7 @@ public class AccumulateNode extends BetaNode {
 
     public static abstract class AccumulateMemory extends AbstractBaseLinkedListNode<Memory>
         implements
-        Memory {
+        SegmentNodeMemory {
 
         public Object             workingMemoryContext;
         private final BetaMemory  betaMemory;
@@ -233,6 +262,26 @@ public class AccumulateNode extends BetaNode {
         }
 
         public abstract void reset();
+
+        @Override
+        public long getNodePosMaskBit() {
+            return betaMemory.getNodePosMaskBit();
+        }
+
+        @Override
+        public void setNodePosMaskBit( long segmentPos ) {
+            betaMemory.setNodePosMaskBit( segmentPos );
+        }
+
+        @Override
+        public void setNodeDirtyWithoutNotify() {
+            betaMemory.setNodeDirtyWithoutNotify();
+        }
+
+        @Override
+        public void setNodeCleanWithoutNotify() {
+            betaMemory.setNodeCleanWithoutNotify();
+        }
     }
 
     public static class SingleAccumulateMemory extends AccumulateMemory {
@@ -270,7 +319,7 @@ public class AccumulateNode extends BetaNode {
 
     public static class AccumulateContext
         implements
-        Externalizable {
+        ContextOwner, Externalizable {
         public  Object              context;
         public  RightTuple          result;
         public  InternalFactHandle  resultFactHandle;
@@ -325,6 +374,13 @@ public class AccumulateNode extends BetaNode {
         public void setPropagationContext(PropagationContext propagationContext) {
             this.propagationContext = propagationContext;
         }
+
+        public <T> T getContext(Class<T> contextClass) {
+            if (contextClass.isInstance( context )) {
+                return (T) context;
+            }
+            return null;
+        }
     }
 
     public LeftTuple createLeftTuple(InternalFactHandle factHandle,
@@ -373,11 +429,6 @@ public class AccumulateNode extends BetaNode {
         LEFT, RIGHT
     }
 
-    @Override
-    public void assertRightTuple(RightTuple rightTuple, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
     /**
      *  @inheritDoc
      *
@@ -406,22 +457,6 @@ public class AccumulateNode extends BetaNode {
 
     @Override
     public void retractLeftTuple(LeftTuple leftTuple, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void modifyLeftTuple(InternalFactHandle factHandle, ModifyPreviousTuples modifyPreviousTuples, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void modifyLeftTuple(LeftTuple leftTuple, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-
-    @Override
-    public void updateSink(LeftTupleSink sink, PropagationContext context, InternalWorkingMemory workingMemory) {
         throw new UnsupportedOperationException();
     }
 

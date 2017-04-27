@@ -16,12 +16,17 @@
 
 package org.drools.core.spi;
 
+import org.drools.core.ClassObjectFilter;
 import org.kie.api.runtime.KieRuntime;
+import org.kie.api.runtime.process.CaseAssignment;
+import org.kie.api.runtime.process.CaseData;
 import org.kie.api.runtime.process.NodeInstance;
 import org.kie.api.runtime.process.ProcessInstance;
 import org.kie.api.runtime.process.WorkflowProcessInstance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Collection;
 
 public class ProcessContext implements org.kie.api.runtime.process.ProcessContext {
     
@@ -84,5 +89,23 @@ public class ProcessContext implements org.kie.api.runtime.process.ProcessContex
     public Logger getLogger() { 
         return logger;
     }
-    
+
+    public CaseData getCaseData() {
+
+        Collection<? extends Object> objects = kruntime.getObjects(new ClassObjectFilter(CaseData.class));
+        if (objects.size() == 0) {
+            return null;
+        }
+
+        return (CaseData) objects.iterator().next();
+    }
+
+    public CaseAssignment getCaseAssignment() {
+        Collection<? extends Object> objects = kruntime.getObjects(new ClassObjectFilter(CaseAssignment.class));
+        if (objects.size() == 0) {
+            return null;
+        }
+
+        return (CaseAssignment) objects.iterator().next();
+    }
 }

@@ -15,8 +15,10 @@
 
 package org.drools.core.reteoo;
 
+import java.util.Collection;
+import java.util.List;
+
 import org.drools.core.base.ClassObjectType;
-import org.drools.core.common.InternalWorkingMemory;
 import org.drools.core.factmodel.traits.TraitableBean;
 import org.drools.core.impl.InternalKnowledgeBase;
 import org.drools.core.reteoo.builder.BuildContext;
@@ -25,11 +27,8 @@ import org.drools.core.spi.ObjectType;
 import org.drools.core.util.bitmask.AllSetBitMask;
 import org.drools.core.util.bitmask.AllSetButLastBitMask;
 import org.drools.core.util.bitmask.BitMask;
-import org.drools.core.util.ClassUtils;
 import org.drools.core.util.bitmask.EmptyBitMask;
 import org.drools.core.util.bitmask.EmptyButLastBitMask;
-
-import java.util.List;
 
 public class PropertySpecificUtil {
 
@@ -53,6 +52,10 @@ public class PropertySpecificUtil {
         return EmptyButLastBitMask.get();
     }
 
+    public static BitMask allSetBitMask() {
+        return AllSetBitMask.get();
+    }
+
     public static BitMask allSetButTraitBitMask() {
         return AllSetButLastBitMask.get();
     }
@@ -61,22 +64,22 @@ public class PropertySpecificUtil {
         return mask instanceof AllSetButLastBitMask;
     }
 
-    public static BitMask calculatePositiveMask(List<String> listenedProperties, List<String> settableProperties) {
-        return calculatePatternMask(listenedProperties, settableProperties, true);
+    public static BitMask calculatePositiveMask( Collection<String> listenedProperties, List<String> accessibleProperties ) {
+        return calculatePatternMask(listenedProperties, accessibleProperties, true);
     }
 
-    public static BitMask calculateNegativeMask(List<String> listenedProperties, List<String> settableProperties) {
-        return calculatePatternMask(listenedProperties, settableProperties, false);
+    public static BitMask calculateNegativeMask(Collection<String> listenedProperties, List<String> accessibleProperties) {
+        return calculatePatternMask(listenedProperties, accessibleProperties, false);
     }
 
-    private static BitMask calculatePatternMask(List<String> listenedProperties, List<String> settableProperties, boolean isPositive) {
+    private static BitMask calculatePatternMask(Collection<String> listenedProperties, List<String> accessibleProperties, boolean isPositive) {
         if (listenedProperties == null) {
             return EmptyBitMask.get();
         }
 
-        BitMask mask = getEmptyPropertyReactiveMask(settableProperties.size());
-        if (listenedProperties != null && listenedProperties.contains( TraitableBean.TRAITSET_FIELD_NAME )) {
-            if (isPositive && listenedProperties != null && listenedProperties.contains( TraitableBean.TRAITSET_FIELD_NAME ) ) {
+        BitMask mask = getEmptyPropertyReactiveMask(accessibleProperties.size());
+        if (listenedProperties.contains( TraitableBean.TRAITSET_FIELD_NAME )) {
+            if (isPositive && listenedProperties.contains( TraitableBean.TRAITSET_FIELD_NAME ) ) {
                 mask = mask.set(TRAITABLE_BIT);
             }
         }
@@ -91,7 +94,7 @@ public class PropertySpecificUtil {
                 propertyName = propertyName.substring(1);
             }
 
-            mask = setPropertyOnMask(mask, settableProperties, propertyName);
+            mask = setPropertyOnMask(mask, accessibleProperties, propertyName);
         }
         return mask;
     }
@@ -112,31 +115,7 @@ public class PropertySpecificUtil {
         return mask.isSet(index + CUSTOM_BITS_OFFSET);
     }
 
-    public static List<String> getSettableProperties(InternalWorkingMemory workingMemory, ObjectTypeNode objectTypeNode) {
-        return getSettableProperties(workingMemory.getKnowledgeBase(), objectTypeNode);
-    }
-
-    public static List<String> getSettableProperties(InternalKnowledgeBase kBase, ObjectTypeNode objectTypeNode) {
-        return getSettableProperties(kBase, getNodeClass(objectTypeNode));
-    }
-
-    public static List<String> getSettableProperties(InternalKnowledgeBase kBase, Class<?> nodeClass) {
-        if (nodeClass == null) {
-            return null;
-        }
-        TypeDeclaration typeDeclaration = kBase.getTypeDeclaration(nodeClass);
-        if (typeDeclaration == null) {
-            return ClassUtils.getSettableProperties(nodeClass);
-        }
-        typeDeclaration.setTypeClass(nodeClass);
-        return typeDeclaration.getSettableProperties();
-    }
-
-    public static Class<?> getNodeClass(ObjectTypeNode objectTypeNode) {
-        if (objectTypeNode == null) {
-            return null;
-        }
-        ObjectType objectType = objectTypeNode.getObjectType();
-        return objectType != null && objectType instanceof ClassObjectType ? ((ClassObjectType)objectType).getClassType() : null;
+    public static List<String> getAccessibleProperties( InternalKnowledgeBase kBase, Class<?> nodeClass ) {
+        return kBase.getOrCreateExactTypeDeclaration(nodeClass).getAccessibleProperties();
     }
 }

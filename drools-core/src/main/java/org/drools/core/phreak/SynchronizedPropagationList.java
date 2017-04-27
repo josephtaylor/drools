@@ -15,11 +15,11 @@
 
 package org.drools.core.phreak;
 
+import java.util.Iterator;
+
 import org.drools.core.common.InternalWorkingMemory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.Iterator;
 
 public class SynchronizedPropagationList implements PropagationList {
 
@@ -30,6 +30,10 @@ public class SynchronizedPropagationList implements PropagationList {
     protected volatile PropagationEntry head;
     protected volatile PropagationEntry tail;
 
+    private volatile boolean disposed = false;
+
+    private volatile boolean hasEntriesDeferringExpiration = false;
+
     public SynchronizedPropagationList(InternalWorkingMemory workingMemory) {
         this.workingMemory = workingMemory;
     }
@@ -37,27 +41,31 @@ public class SynchronizedPropagationList implements PropagationList {
     @Override
     public void addEntry(final PropagationEntry entry) {
         if (entry.requiresImmediateFlushing()) {
-            workingMemory.getAgenda().executeTask( new ExecutableEntry() {
-                @Override
-                public void execute() {
-                    if (entry instanceof PhreakTimerNode.TimerAction) {
-                        ( (PhreakTimerNode.TimerAction) entry ).execute( workingMemory, true );
-                    } else {
-                        entry.execute( workingMemory );
+        	if (entry.isCalledFromRHS()) {
+        		entry.execute(workingMemory);
+        	} else {
+        		workingMemory.getAgenda().executeTask( new ExecutableEntry() {
+        			@Override
+                    public void execute() {
+                        if (entry instanceof PhreakTimerNode.TimerAction) {
+                            ( (PhreakTimerNode.TimerAction) entry ).execute( workingMemory, true );
+                        } else {
+                            entry.execute( workingMemory );
+                        }
                     }
-                }
 
-                @Override
-                public void enqueue() {
-                    internalAddEntry( entry );
-                }
-            } );
+                    @Override
+                    public void enqueue() {
+                        internalAddEntry( entry );
+                    }
+                } );
+        	}
         } else {
             internalAddEntry( entry );
         }
     }
 
-    protected synchronized void internalAddEntry( PropagationEntry entry ) {
+    synchronized void internalAddEntry( PropagationEntry entry ) {
         if ( head == null ) {
             head = entry;
             notifyWaitOnRest();
@@ -65,6 +73,12 @@ public class SynchronizedPropagationList implements PropagationList {
             tail.setNext( entry );
         }
         tail = entry;
+        hasEntriesDeferringExpiration |= entry.defersExpiration();
+    }
+
+    @Override
+    public void dispose() {
+        disposed = true;
     }
 
     @Override
@@ -72,15 +86,19 @@ public class SynchronizedPropagationList implements PropagationList {
         flush( workingMemory, takeAll() );
     }
 
-    @Override public void flush(PropagationEntry currentHead)
-    {
+    @Override
+    public void flush(PropagationEntry currentHead) {
         flush( workingMemory, currentHead );
     }
 
-    public static void flush( InternalWorkingMemory workingMemory, PropagationEntry currentHead ) {
-        for (PropagationEntry entry = currentHead; entry != null; entry = entry.getNext()) {
+    private void flush( InternalWorkingMemory workingMemory, PropagationEntry currentHead ) {
+        for (PropagationEntry entry = currentHead; !disposed && entry != null; entry = entry.getNext()) {
             entry.execute(workingMemory);
         }
+    }
+
+    public boolean hasEntriesDeferringExpiration() {
+        return hasEntriesDeferringExpiration;
     }
 
     @Override
@@ -88,33 +106,15 @@ public class SynchronizedPropagationList implements PropagationList {
         PropagationEntry currentHead = head;
         head = null;
         tail = null;
+        hasEntriesDeferringExpiration = false;
         return currentHead;
-    }
-
-    @Override
-    public synchronized void flushNonMarshallable() {
-        PropagationEntry newHead = null;
-        PropagationEntry newTail = null;
-        for (PropagationEntry entry = head; entry != null; entry = entry.getNext()) {
-            if (entry.isMarshallable()) {
-                if (newHead == null) {
-                    newHead = entry;
-                } else {
-                    newTail.setNext(entry);
-                }
-                newTail = entry;
-            } else {
-                entry.execute(workingMemory);
-            }
-        }
-        head = newHead;
-        tail = newTail;
     }
 
     @Override
     public synchronized void reset() {
         head = null;
         tail = null;
+        disposed = false;
     }
 
     @Override
@@ -123,19 +123,19 @@ public class SynchronizedPropagationList implements PropagationList {
     }
 
     public synchronized void waitOnRest() {
+        workingMemory.onSuspend();
         try {
-            log.debug("Engine wait");
             wait();
         } catch (InterruptedException e) {
             // do nothing
         }
-        log.debug("Engine resumed");
     }
 
 
     @Override
     public synchronized void notifyWaitOnRest() {
         notifyAll();
+        workingMemory.onResume();
     }
 
     @Override

@@ -15,40 +15,12 @@
 
 package org.drools.core.command.runtime.rule;
 
-import static org.hamcrest.core.Is.is;
-import static org.hamcrest.core.IsInstanceOf.instanceOf;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
-
-import java.io.ByteArrayInputStream;
-import java.io.StringWriter;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
-import java.nio.charset.Charset;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Random;
-import java.util.UUID;
-import java.util.regex.Pattern;
-
-import javax.xml.bind.JAXBContext;
-import javax.xml.bind.annotation.XmlElement;
-import javax.xml.bind.annotation.XmlElements;
-
 import org.drools.core.ClassObjectFilter;
 import org.drools.core.ClassObjectSerializationFilter;
 import org.drools.core.base.RuleNameEndsWithAgendaFilter;
 import org.drools.core.base.RuleNameEqualsAgendaFilter;
 import org.drools.core.base.RuleNameMatchesAgendaFilter;
 import org.drools.core.base.RuleNameStartsWithAgendaFilter;
-import org.drools.core.command.impl.GenericCommand;
 import org.drools.core.command.runtime.BatchExecutionCommandImpl;
 import org.drools.core.command.runtime.GetGlobalCommand;
 import org.drools.core.command.runtime.SetGlobalCommand;
@@ -65,6 +37,29 @@ import org.kie.api.command.Command;
 import org.kie.api.command.Setter;
 import org.kie.api.runtime.rule.AgendaFilter;
 import org.kie.api.runtime.rule.FactHandle;
+
+import javax.xml.bind.JAXBContext;
+import javax.xml.bind.annotation.XmlElement;
+import javax.xml.bind.annotation.XmlElements;
+import java.io.ByteArrayInputStream;
+import java.io.StringWriter;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Random;
+import java.util.UUID;
+import java.util.regex.Pattern;
+
+import static org.hamcrest.core.Is.is;
+import static org.hamcrest.core.IsInstanceOf.instanceOf;
+import static org.junit.Assert.*;
 
 public class CommandSerializationTest {
 
@@ -195,7 +190,7 @@ public class CommandSerializationTest {
         {
             AbortWorkItemCommand cmd = new AbortWorkItemCommand(23l);
 
-            batchCmd.getCommands().add(cmd);
+            batchCmd.addCommand(cmd);
         }
         {
             String externalForm = factHandle.toExternalForm();
@@ -203,19 +198,19 @@ public class CommandSerializationTest {
                           DisconnectedFactHandle.newFrom(factHandle).toExternalForm() );
             DeleteCommand cmd = new DeleteCommand(factHandle);
 
-            batchCmd.getCommands().add(cmd);
+            batchCmd.addCommand(cmd);
         }
         {
             GetGlobalCommand cmd = new GetGlobalCommand("global-id");
             cmd.setOutIdentifier("out-id");
 
-            batchCmd.getCommands().add(cmd);
+            batchCmd.addCommand(cmd);
         }
         {
             SetGlobalCommand cmd = new SetGlobalCommand("global-id", new Integer(23));
             cmd.setOutIdentifier("out-id");
 
-            batchCmd.getCommands().add(cmd);
+            batchCmd.addCommand(cmd);
         }
         {
             InsertElementsCommand cmd = new InsertElementsCommand();
@@ -228,7 +223,7 @@ public class CommandSerializationTest {
             objects.add(mapObj);
             cmd.setObjects(objects);
 
-            batchCmd.getCommands().add(cmd);
+            batchCmd.addCommand(cmd);
         }
         {
             QueryCommand cmd = new QueryCommand();
@@ -240,7 +235,7 @@ public class CommandSerializationTest {
             cmd.setName("query-name");
             cmd.setOutIdentifier("out-id");
 
-            batchCmd.getCommands().add(cmd);
+            batchCmd.addCommand(cmd);
         }
         {
             InsertObjectCommand cmd = new InsertObjectCommand();
@@ -249,7 +244,7 @@ public class CommandSerializationTest {
             cmd.setReturnObject(true);
             cmd.setObject("object");
 
-            batchCmd.getCommands().add(cmd);
+            batchCmd.addCommand(cmd);
         }
         {
             ModifyCommand cmd = new ModifyCommand();
@@ -283,12 +278,12 @@ public class CommandSerializationTest {
             setters.add(setter);
             cmd.setSetters(setters);
 
-            batchCmd.getCommands().add(cmd);
+            batchCmd.addCommand(cmd);
         }
         {
             GetObjectCommand cmd = new GetObjectCommand(factHandle, "out-id");
 
-            batchCmd.getCommands().add(cmd);
+            batchCmd.addCommand(cmd);
         }
 
         // TODO: implement serialization for agenda filters
@@ -301,7 +296,19 @@ public class CommandSerializationTest {
 
             for( AgendaFilter filter : filters ) {
                 FireAllRulesCommand cmd = new FireAllRulesCommand(randomString(), random.nextInt(1000), filter);
-                batchCmd.getCommands().add(cmd);
+                batchCmd.addCommand(cmd);
+            }
+        }
+        {
+            AgendaFilter[] filters = new AgendaFilter[4];
+            filters[0] = new RuleNameEndsWithAgendaFilter("suffix", false);
+            filters[1] = new RuleNameEqualsAgendaFilter("name", true);
+            filters[2] = new RuleNameMatchesAgendaFilter("regexp", false);
+            filters[3] = new RuleNameStartsWithAgendaFilter("prefix", false);
+
+            for (AgendaFilter filter : filters) {
+                FireUntilHaltCommand cmd = new FireUntilHaltCommand(filter);
+                batchCmd.addCommand(cmd);
             }
         }
         {
@@ -312,33 +319,33 @@ public class CommandSerializationTest {
             results.put("list", resultValList);
             CompleteWorkItemCommand cmd = new CompleteWorkItemCommand(random.nextInt(1000), results);
 
-            batchCmd.getCommands().add(cmd);
+            batchCmd.addCommand(cmd);
         }
         {
             ClassObjectFilter filter = new ClassObjectFilter(String.class);
             GetObjectsCommand cmd = new GetObjectsCommand(filter, "out-id");
 
-            batchCmd.getCommands().add(cmd);
+            batchCmd.addCommand(cmd);
         }
         {
             AgendaGroupSetFocusCommand cmd = new AgendaGroupSetFocusCommand(randomString());
-            batchCmd.getCommands().add(cmd);
+            batchCmd.addCommand(cmd);
         }
         {
             ClearActivationGroupCommand cmd = new ClearActivationGroupCommand(randomString());
-            batchCmd.getCommands().add(cmd);
+            batchCmd.addCommand(cmd);
         }
         {
             ClearAgendaCommand cmd = new ClearAgendaCommand();
-            batchCmd.getCommands().add(cmd);
+            batchCmd.addCommand(cmd);
         }
         {
             ClearAgendaGroupCommand cmd = new ClearAgendaGroupCommand(randomString());
-            batchCmd.getCommands().add(cmd);
+            batchCmd.addCommand(cmd);
         }
         {
             ClearRuleFlowGroupCommand cmd = new ClearRuleFlowGroupCommand(randomString());
-            batchCmd.getCommands().add(cmd);
+            batchCmd.addCommand(cmd);
         }
 
 
@@ -347,8 +354,8 @@ public class CommandSerializationTest {
         assertEquals( "Batch cmd num commands", batchCmd.getCommands().size(), batchCmdCopy.getCommands().size() );
         // How many times have I written this type of code?
         // This code should use the utility in kie-test-util when it finally gets moved there..
-        for( GenericCommand copyCmd : batchCmdCopy.getCommands() ) {
-            for( GenericCommand origCmd : batchCmd.getCommands() ) {
+        for( Command copyCmd : batchCmdCopy.getCommands() ) {
+            for( Command origCmd : batchCmd.getCommands() ) {
                 Class cmdClass = origCmd.getClass();
                 if( copyCmd.getClass().equals(cmdClass) ) {
                     if( cmdClass.equals(DeleteCommand.class) ) {
@@ -379,6 +386,23 @@ public class CommandSerializationTest {
                         assertEquals( FireAllRulesCommand.class.getSimpleName() + ".outIdentifier",
                                       ((FireAllRulesCommand) origCmd).getOutIdentifier(),
                                       ((FireAllRulesCommand) copyCmd).getOutIdentifier());
+                    } else if (cmdClass.equals(FireUntilHaltCommand.class)) {
+                        AgendaFilter origFilter = ((FireUntilHaltCommand) origCmd).getAgendaFilter();
+                        AgendaFilter copyFilter = ((FireUntilHaltCommand) copyCmd).getAgendaFilter();
+                        if (!origFilter.getClass().equals(copyFilter.getClass())) {
+                            continue;
+                        }
+                        Class agendaFilterClass = origFilter.getClass();
+                        for (Field agendaFilterField : agendaFilterClass.getDeclaredFields()) {
+                            agendaFilterField.setAccessible(true);
+                            Object afFieldOrigVal = agendaFilterField.get(origFilter);
+                            Object afFieldCopyVal = agendaFilterField.get(copyFilter);
+                            if (afFieldOrigVal instanceof Pattern) {
+                                afFieldOrigVal = ((Pattern) afFieldOrigVal).pattern();
+                                afFieldCopyVal = ((Pattern) afFieldCopyVal).pattern();
+                            }
+                            assertEquals(agendaFilterClass.getSimpleName() + "." + agendaFilterField.getName(), afFieldOrigVal, afFieldCopyVal);
+                        }
                     } else {
                         for( Field cmdField : cmdClass.getDeclaredFields() ) {
                             cmdField.setAccessible(true);
@@ -448,7 +472,7 @@ public class CommandSerializationTest {
 
         cmdTypes.remove(SignalEventCommand.class);  // already thoroughly tested..
         cmdTypes.remove(StartProcessCommand.class); // already thoroughly tested..
-        for( GenericCommand cmd : batchCmd.getCommands() ) {
+        for( Command cmd : batchCmd.getCommands() ) {
            cmdTypes.remove(cmd.getClass());
         }
         String cmdInstName = cmdTypes.isEmpty() ? "null" : cmdTypes.get(0).getSimpleName();

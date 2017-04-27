@@ -16,16 +16,22 @@
 
 package org.drools.core.common;
 
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.concurrent.locks.Lock;
+
 import org.drools.core.SessionConfiguration;
 import org.drools.core.WorkingMemory;
+import org.drools.core.WorkingMemoryEntryPoint;
 import org.drools.core.definitions.rule.impl.RuleImpl;
 import org.drools.core.event.AgendaEventSupport;
 import org.drools.core.event.RuleRuntimeEventSupport;
+import org.drools.core.impl.InternalRuleUnitExecutor;
 import org.drools.core.phreak.PropagationEntry;
+import org.drools.core.phreak.PropagationList;
 import org.drools.core.reteoo.EntryPointNode;
-import org.drools.core.reteoo.ObjectTypeConf;
 import org.drools.core.rule.EntryPointId;
-import org.drools.core.runtime.impl.ExecutionResultImpl;
 import org.drools.core.runtime.process.InternalProcessRuntime;
 import org.drools.core.spi.Activation;
 import org.drools.core.spi.FactHandleFactory;
@@ -35,13 +41,8 @@ import org.kie.api.runtime.Channel;
 import org.kie.api.runtime.rule.EntryPoint;
 import org.kie.api.runtime.rule.FactHandle;
 
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.concurrent.locks.Lock;
-
 public interface InternalWorkingMemory
-    extends WorkingMemory, InternalWorkingMemoryEntryPoint {
+    extends WorkingMemory, WorkingMemoryEntryPoint, EventSupport {
 
     InternalAgenda getAgenda();
 
@@ -62,8 +63,6 @@ public interface InternalWorkingMemory
 
     ObjectStore getObjectStore();
 
-    void executeQueuedActionsForRete();
-
     void queueWorkingMemoryAction(final WorkingMemoryAction action);
 
     FactHandleFactory getFactHandleFactory();
@@ -74,12 +73,6 @@ public interface InternalWorkingMemory
 
     EntryPoint getEntryPoint(String name);
 
-    void insert(final InternalFactHandle handle,
-                       final Object object,
-                       final RuleImpl rule,
-                       final Activation activation,
-                       ObjectTypeConf typeConf);
-    
     /**
      * Looks for the fact handle associated to the given object
      * by looking up the object IDENTITY (==), even if rule base
@@ -126,9 +119,7 @@ public interface InternalWorkingMemory
 
     SessionConfiguration getSessionConfiguration();
     
-    void startBatchExecution(ExecutionResultImpl results);
-    
-    ExecutionResultImpl getExecutionResult();
+    void startBatchExecution();
     
     void endBatchExecution();
     
@@ -203,17 +194,10 @@ public interface InternalWorkingMemory
     void addPropagation(PropagationEntry propagationEntry);
 
     void flushPropagations();
-    void flushPropagations(PropagationEntry propagationEntry);
-    void flushNonMarshallablePropagations();
 
     void activate();
     void deactivate();
     boolean tryDeactivate();
-
-    void notifyEngineInactive();
-
-    boolean hasPendingPropagations();
-    PropagationEntry takeAllPropagations();
 
     Iterator<? extends PropagationEntry> getActionsIterator();
 
@@ -221,5 +205,16 @@ public interface InternalWorkingMemory
 
     void notifyWaitOnRest();
 
-    PropagationEntry handleRestOnFireUntilHalt(DefaultAgenda.ExecutionState currentState);
+    void cancelActivation(Activation activation, boolean declarativeAgenda);
+
+    default PropagationList getPropagationList() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void onSuspend() { }
+    default void onResume() { }
+
+    default InternalRuleUnitExecutor getRuleUnitExecutor() {
+        return null;
+    }
 }

@@ -37,9 +37,6 @@ public class PhreakJoinNode {
                        TupleSets<LeftTuple> trgLeftTuples,
                        TupleSets<LeftTuple> stagedLeftTuples) {
 
-        if ( !bm.getStagedRightTuples().isEmpty() ) {
-            bm.setNodeDirtyWithoutNotify();
-        }
         TupleSets<RightTuple> srcRightTuples = bm.getStagedRightTuples().takeAll();
 
         if (srcRightTuples.getDeleteFirst() != null) {
@@ -50,21 +47,19 @@ public class PhreakJoinNode {
             doLeftDeletes(bm, srcLeftTuples, trgLeftTuples, stagedLeftTuples);
         }
 
-        if (srcLeftTuples.getUpdateFirst() != null ) {
-            RuleNetworkEvaluator.doUpdatesReorderLeftMemory(bm,
-                                                            srcLeftTuples);
+        if (srcRightTuples.getUpdateFirst() != null) {
+            RuleNetworkEvaluator.doUpdatesReorderRightMemory(bm, srcRightTuples);
         }
 
-        if (srcRightTuples.getUpdateFirst() != null) {
-            RuleNetworkEvaluator.doUpdatesReorderRightMemory(bm,
-                                                             srcRightTuples);
+        if (srcLeftTuples.getUpdateFirst() != null ) {
+            RuleNetworkEvaluator.doUpdatesReorderLeftMemory(bm, srcLeftTuples);
         }
 
         if (srcRightTuples.getUpdateFirst() != null) {
             doRightUpdates(joinNode, sink, bm, wm, srcRightTuples, trgLeftTuples, stagedLeftTuples);
         }
 
-        if (srcLeftTuples.getUpdateFirst() != null) {
+        if (srcLeftTuples.getUpdateFirst() != null ) {
             doLeftUpdates(joinNode, sink, bm, wm, srcLeftTuples, trgLeftTuples, stagedLeftTuples);
         }
 
@@ -112,12 +107,13 @@ public class PhreakJoinNode {
                                                                       it ); rightTuple != null; rightTuple = (RightTuple) it.next(rightTuple)) {
                 if (constraints.isAllowedCachedLeft( contextEntry,
                                                      rightTuple.getFactHandle() )) {
-                    trgLeftTuples.addInsert(sink.createLeftTuple(leftTuple,
-                                                                 rightTuple,
-                                                                 null,
-                                                                 null,
-                                                                 sink,
-                                                                 useLeftMemory));
+                    insertChildLeftTuple(trgLeftTuples,
+                                         leftTuple,
+                                         rightTuple,
+                                         null,
+                                         null,
+                                         sink,
+                                         useLeftMemory);
                 }
 
             }
@@ -161,12 +157,13 @@ public class PhreakJoinNode {
 
                     if ( constraints.isAllowedCachedRight( contextEntry,
                                                            leftTuple ) ) {
-                        trgLeftTuples.addInsert( sink.createLeftTuple( leftTuple,
-                                                                       rightTuple,
-                                                                       null,
-                                                                       null,
-                                                                       sink,
-                                                                       true ) );
+                        insertChildLeftTuple( trgLeftTuples,
+                                              leftTuple,
+                                              rightTuple,
+                                              null,
+                                              null,
+                                              sink,
+                                              true );
                     }
                 }
             }
@@ -200,23 +197,22 @@ public class PhreakJoinNode {
                                                                 null,
                                                                 it);
 
-            LeftTuple childLeftTuple = leftTuple.getFirstChild();
-
             // first check our index (for indexed nodes only) hasn't changed and we are returning the same bucket
             // if rightTuple is null, we assume there was a bucket change and that bucket is empty
-            if (childLeftTuple != null && rtm.isIndexed() && !it.isFullIterator() && (rightTuple == null || (rightTuple.getMemory() != childLeftTuple.getRightParent().getMemory()))) {
+            if (rtm.isIndexed() && !it.isFullIterator()) {
                 // our index has changed, so delete all the previous propagations
-                while (childLeftTuple != null) {
+                for (LeftTuple childLeftTuple = leftTuple.getFirstChild(); childLeftTuple != null; ) {
                     LeftTuple nextChild = childLeftTuple.getHandleNext();
-                    RuleNetworkEvaluator.unlinkAndDeleteChildLeftTuple( childLeftTuple, trgLeftTuples, stagedLeftTuples );
+                    if (rightTuple == null || rightTuple.getMemory() != childLeftTuple.getRightParent().getMemory()) {
+                        RuleNetworkEvaluator.unlinkAndDeleteChildLeftTuple( childLeftTuple, trgLeftTuples, stagedLeftTuples );
+                    }
                     childLeftTuple = nextChild;
                 }
-                // childLeftTuple is now null, so the next check will attempt matches for new bucket
             }
 
             // we can't do anything if RightTupleMemory is empty
             if (rightTuple != null) {
-                doLeftUpdatesProcessChildren(childLeftTuple, leftTuple, rightTuple, stagedLeftTuples, contextEntry, constraints, sink, it, trgLeftTuples);
+                doLeftUpdatesProcessChildren(leftTuple.getFirstChild(), leftTuple, rightTuple, stagedLeftTuples, contextEntry, constraints, sink, it, trgLeftTuples);
             }
             leftTuple.clearStaged();
             leftTuple = next;
@@ -239,12 +235,13 @@ public class PhreakJoinNode {
             for (; rightTuple != null; rightTuple = (RightTuple) it.next(rightTuple)) {
                 if (constraints.isAllowedCachedLeft(contextEntry,
                                                     rightTuple.getFactHandle())) {
-                    trgLeftTuples.addInsert(sink.createLeftTuple(leftTuple,
-                                                                 rightTuple,
-                                                                 null,
-                                                                 null,
-                                                                 sink,
-                                                                 true));
+                    insertChildLeftTuple(trgLeftTuples,
+                                         leftTuple,
+                                         rightTuple,
+                                         null,
+                                         null,
+                                         sink,
+                                         true);
                 }
             }
         } else {
@@ -254,12 +251,13 @@ public class PhreakJoinNode {
                                                     rightTuple.getFactHandle())) {
                     // insert, childLeftTuple is not updated
                     if (childLeftTuple == null || childLeftTuple.getRightParent() != rightTuple) {
-                        trgLeftTuples.addInsert(sink.createLeftTuple(leftTuple,
-                                                                     rightTuple,
-                                                                     childLeftTuple,
-                                                                     null,
-                                                                     sink,
-                                                                     true));
+                        insertChildLeftTuple(trgLeftTuples,
+                                             leftTuple,
+                                             rightTuple,
+                                             childLeftTuple,
+                                             null,
+                                             sink,
+                                             true);
                     } else {
                         // update, childLeftTuple is updated
                         childLeftTuple.setPropagationContext(rightTuple.getPropagationContext());
@@ -348,12 +346,13 @@ public class PhreakJoinNode {
 
                 if (constraints.isAllowedCachedRight(contextEntry,
                                                      leftTuple)) {
-                    trgLeftTuples.addInsert(sink.createLeftTuple(leftTuple,
-                                                                 rightTuple,
-                                                                 null,
-                                                                 null,
-                                                                 sink,
-                                                                 true));
+                    insertChildLeftTuple(trgLeftTuples,
+                                         leftTuple,
+                                         rightTuple,
+                                         null,
+                                         null,
+                                         sink,
+                                         true);
                 }
             }
         } else {
@@ -367,12 +366,13 @@ public class PhreakJoinNode {
                                                      leftTuple)) {
                     // insert, childLeftTuple is not updated
                     if (childLeftTuple == null || childLeftTuple.getLeftParent() != leftTuple) {
-                        trgLeftTuples.addInsert(sink.createLeftTuple(leftTuple,
-                                                                     rightTuple,
-                                                                     null,
-                                                                     childLeftTuple,
-                                                                     sink,
-                                                                     true));
+                        insertChildLeftTuple(trgLeftTuples,
+                                             leftTuple,
+                                             rightTuple,
+                                             null,
+                                             childLeftTuple,
+                                             sink,
+                                             true);
                     } else {
                         // update, childLeftTuple is updated
                         childLeftTuple.setPropagationContext(rightTuple.getPropagationContext());
@@ -452,18 +452,37 @@ public class PhreakJoinNode {
     public static void updateChildLeftTuple(LeftTuple childLeftTuple,
                                             TupleSets<LeftTuple> stagedLeftTuples,
                                             TupleSets<LeftTuple> trgLeftTuples) {
-        switch (childLeftTuple.getStagedType()) {
-            // handle clash with already staged entries
-            case LeftTuple.INSERT:
-                stagedLeftTuples.removeInsert(childLeftTuple);
-                trgLeftTuples.addInsert(childLeftTuple);
-                break;
-            case LeftTuple.UPDATE:
-                stagedLeftTuples.removeUpdate(childLeftTuple);
-                trgLeftTuples.addUpdate(childLeftTuple);
-                break;
-            default:
-                trgLeftTuples.addUpdate(childLeftTuple);
+        if (!childLeftTuple.isStagedOnRight()) {
+            switch ( childLeftTuple.getStagedType() ) {
+                // handle clash with already staged entries
+                case LeftTuple.INSERT:
+                    stagedLeftTuples.removeInsert( childLeftTuple );
+                    trgLeftTuples.addInsert( childLeftTuple );
+                    break;
+                case LeftTuple.UPDATE:
+                    stagedLeftTuples.removeUpdate( childLeftTuple );
+                    trgLeftTuples.addUpdate( childLeftTuple );
+                    break;
+                default:
+                    trgLeftTuples.addUpdate( childLeftTuple );
+            }
+        }
+    }
+
+    private static void insertChildLeftTuple( TupleSets<LeftTuple> trgLeftTuples,
+                                              LeftTuple leftTuple,
+                                              RightTuple rightTuple,
+                                              LeftTuple currentLeftChild,
+                                              LeftTuple currentRightChild,
+                                              LeftTupleSink sink,
+                                              boolean leftTupleMemoryEnabled ) {
+        if (!leftTuple.isExpired() && !rightTuple.isExpired()) {
+            trgLeftTuples.addInsert(sink.createLeftTuple(leftTuple,
+                                                         rightTuple,
+                                                         currentLeftChild,
+                                                         currentRightChild,
+                                                         sink,
+                                                         leftTupleMemoryEnabled));
         }
     }
 }

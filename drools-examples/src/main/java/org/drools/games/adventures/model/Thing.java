@@ -16,9 +16,7 @@
 package org.drools.games.adventures.model;
 
 import org.kie.api.definition.type.Position;
-import org.kie.api.definition.type.PropertyReactive;
 
-@PropertyReactive
 public class Thing {
     @Position(0)
     private long id;
@@ -26,13 +24,24 @@ public class Thing {
     @Position(1)
     private String name;
 
+    private boolean portable;
+
     public Thing(long id, String name) {
+        this(id, name, true);
+    }
+
+    public Thing(long id, String name, boolean portable) {
         this.id = id;
         this.name = name;
+        this.portable = portable;
     }
 
     public Thing(String name) {
-        this(-1, name);
+        this(-1, name, true);
+    }
+
+    public Thing(String name, boolean portable) {
+        this(-1, name, portable);
     }
 
     public long getId() {
@@ -49,6 +58,14 @@ public class Thing {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public boolean isPortable() {
+        return portable;
+    }
+
+    public void setPortable(boolean portable) {
+        this.portable = portable;
     }
 
     @Override

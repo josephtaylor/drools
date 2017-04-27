@@ -386,7 +386,8 @@ public class MVELDumper extends ReflectiveVisitor implements ExpressionRewriter 
         }
 
         ClassLoader cl = context.getRuleContext().getKnowledgeBuilder().getRootClassLoader();
-        for (int i = split.length-1; i > 1; i++) {
+        // DROOLS-1337, attempt to identify FQN by progressively iterating from the /beginning/ of split[] 
+        for (int i = 2; i <= split.length; i++) {
             String className = concatDotSeparated(split, 0, i);
             if (className.endsWith("!")) {
                 className = className.substring(0, className.length()-1);
@@ -571,7 +572,6 @@ public class MVELDumper extends ReflectiveVisitor implements ExpressionRewriter 
         private RuleBuildContext ruleContext;
         private Map<String, String> inferredCasts;
         private int openCcd;
-        private boolean inXpath;
 
         public MVELDumperContext() {
             this.aliases = new HashMap<String, OperatorDescr>();
@@ -668,11 +668,11 @@ public class MVELDumper extends ReflectiveVisitor implements ExpressionRewriter 
         }
 
         public boolean isInXpath() {
-            return inXpath;
+            return ruleContext != null && ruleContext.isInXpath();
         }
 
         public void setInXpath( boolean inXpath ) {
-            this.inXpath = inXpath;
+            ruleContext.setInXpath( inXpath );
         }
     }
 }

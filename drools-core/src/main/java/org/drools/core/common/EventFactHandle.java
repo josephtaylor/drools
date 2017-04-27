@@ -16,9 +16,12 @@
 
 package org.drools.core.common;
 
+import org.drools.core.WorkingMemoryEntryPoint;
 import org.drools.core.time.JobHandle;
 import org.drools.core.time.TimerService;
 import org.drools.core.util.LinkedList;
+
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class EventFactHandle extends DefaultFactHandle implements Comparable<EventFactHandle> {
 
@@ -29,10 +32,13 @@ public class EventFactHandle extends DefaultFactHandle implements Comparable<Eve
     private long              startTimestamp;
     private long              duration;
     private boolean           expired;
+    private boolean           pendingRemoveFromStore;
     private long              activationsCount;
     private int               otnCount;
 
     private EventFactHandle   linkedFactHandle;
+
+    private AtomicInteger     notExpiredPartitions;
 
     private final transient LinkedList<JobHandle> jobs = new LinkedList<JobHandle>();
 
@@ -60,7 +66,7 @@ public class EventFactHandle extends DefaultFactHandle implements Comparable<Eve
                            long recency,
                            long timestamp,
                            long duration,
-                           InternalWorkingMemoryEntryPoint wmEntryPoint ) {
+                           WorkingMemoryEntryPoint wmEntryPoint ) {
         this( id, object, recency, timestamp, duration, wmEntryPoint, false );
     }
 
@@ -69,7 +75,7 @@ public class EventFactHandle extends DefaultFactHandle implements Comparable<Eve
                            long recency,
                            long timestamp,
                            long duration,
-                           InternalWorkingMemoryEntryPoint wmEntryPoint,
+                           WorkingMemoryEntryPoint wmEntryPoint,
                            boolean isTraitOrTraitable ) {
         super( id,
                object,
@@ -78,6 +84,10 @@ public class EventFactHandle extends DefaultFactHandle implements Comparable<Eve
                isTraitOrTraitable );
         this.startTimestamp = timestamp;
         this.duration = duration;
+
+        if ( wmEntryPoint.getKnowledgeBase() != null && wmEntryPoint.getKnowledgeBase().getConfiguration().isMultithreadEvaluation() ) {
+            notExpiredPartitions = new AtomicInteger( RuleBasePartitionId.PARALLEL_PARTITIONS_NUMBER );
+        }
     }
 
     protected String getFormatVersion() {
@@ -132,6 +142,25 @@ public class EventFactHandle extends DefaultFactHandle implements Comparable<Eve
         return linkedFactHandle;
     }
 
+    @Override
+    public void invalidate() {
+        if ( linkedFactHandle != null ) {
+            linkedFactHandle.invalidate();
+        }  else {
+            super.invalidate();
+        }
+    }
+
+    @Override
+    public boolean isValid() {
+        if ( linkedFactHandle != null ) {
+            return linkedFactHandle.isValid();
+        }  else {
+            return super.isValid();
+        }
+    }
+
+    @Override
     public boolean isExpired() {
         if ( linkedFactHandle != null ) {
             return linkedFactHandle.isExpired();
@@ -140,11 +169,35 @@ public class EventFactHandle extends DefaultFactHandle implements Comparable<Eve
         }
     }
 
+    public boolean expirePartition() {
+        if ( linkedFactHandle != null ) {
+            return linkedFactHandle.expirePartition();
+        }  else {
+            return notExpiredPartitions == null || notExpiredPartitions.decrementAndGet() == 0;
+        }
+    }
+
     public void setExpired(boolean expired) {
         if ( linkedFactHandle != null ) {
             linkedFactHandle.setExpired(expired);
         }  else {
             this.expired = expired;
+        }
+    }
+
+    public boolean isPendingRemoveFromStore() {
+        if ( linkedFactHandle != null ) {
+            return linkedFactHandle.isPendingRemoveFromStore();
+        }  else {
+            return pendingRemoveFromStore;
+        }
+    }
+
+    public void setPendingRemoveFromStore(boolean pendingRemove) {
+        if ( linkedFactHandle != null ) {
+            linkedFactHandle.setPendingRemoveFromStore(pendingRemove);
+        }  else {
+            this.pendingRemoveFromStore = pendingRemove;
         }
     }
 
@@ -210,15 +263,12 @@ public class EventFactHandle extends DefaultFactHandle implements Comparable<Eve
         clone.setExpired( isExpired() );
         clone.setEntryPoint( getEntryPoint() );
         clone.setEqualityKey( getEqualityKey() );
-        clone.setFirstLeftTuple(getLastLeftTuple());
-        clone.setLastLeftTuple(getLastLeftTuple());
-        clone.setFirstRightTuple(getFirstRightTuple());
-        clone.setLastRightTuple(getLastRightTuple());
+        clone.linkedTuples = this.linkedTuples.clone();
         clone.setObjectHashCode(getObjectHashCode());
         return clone;
     }
 
-    public EventFactHandle quickClone() {
+    private EventFactHandle cloneWithoutTuples() {
         EventFactHandle clone = new EventFactHandle( getId(),
                                                      getObject(),
                                                      getRecency(),
@@ -236,9 +286,21 @@ public class EventFactHandle extends DefaultFactHandle implements Comparable<Eve
     }
 
     public EventFactHandle cloneAndLink() {
-        EventFactHandle clone =  quickClone();
+        EventFactHandle clone = cloneWithoutTuples();
         clone.linkedFactHandle = this;
         return clone;
+    }
+
+    public void quickCloneUpdate(DefaultFactHandle clone) {
+        clone.setObject( getObject() );
+        clone.setRecency( getRecency() );
+        clone.setEqualityKey( getEqualityKey() );
+
+        clone.setObjectHashCode( getObjectHashCode() );
+        clone.setIdentityHashCode( getIdentityHashCode() );
+        clone.setTraitType( getTraitType() );
+        clone.setDisconnected( isDisconnected() );
+        clone.setNegated( isNegated() );
     }
 
     public int compareTo(EventFactHandle e) {

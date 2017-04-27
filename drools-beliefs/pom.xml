@@ -6,7 +6,7 @@
   <parent>
     <groupId>org.drools</groupId>
     <artifactId>drools</artifactId>
-    <version>7.0.0-SNAPSHOT</version>
+    <version>7.1.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>drools-beliefs</artifactId>
@@ -63,9 +63,9 @@
     </dependency>
 
     <dependency>
-      <groupId>javax.enterprise</groupId>
-      <artifactId>cdi-api</artifactId>
-      <scope>provided</scope><!-- HACK for OSGi: should be <optional>true</optional> instead -->
+      <groupId>javax.inject</groupId>
+      <artifactId>javax.inject</artifactId>
+      <scope>provided</scope> <!-- HACK for OSGi: should be <optional>true</optional> instead-->
     </dependency>
 
     <!-- Logging -->

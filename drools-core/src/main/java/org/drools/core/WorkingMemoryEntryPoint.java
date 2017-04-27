@@ -17,6 +17,17 @@
 package org.drools.core;
 
 
+import org.drools.core.common.InternalWorkingMemory;
+import org.drools.core.common.ObjectStore;
+import org.drools.core.common.ObjectTypeConfigurationRegistry;
+import org.drools.core.common.TruthMaintenanceSystem;
+import org.drools.core.definitions.rule.impl.RuleImpl;
+import org.drools.core.impl.InternalKnowledgeBase;
+import org.drools.core.reteoo.EntryPointNode;
+import org.drools.core.rule.EntryPointId;
+import org.drools.core.spi.Activation;
+import org.drools.core.spi.FactHandleFactory;
+import org.drools.core.util.bitmask.BitMask;
 import org.kie.api.runtime.rule.EntryPoint;
 import org.kie.api.runtime.rule.FactHandle;
 
@@ -25,15 +36,6 @@ import org.kie.api.runtime.rule.FactHandle;
  * facts
  */
 public interface WorkingMemoryEntryPoint extends EntryPoint {
-    /**
-     * Assert a fact.
-     * 
-     * @param object
-     *            The fact object.
-     * 
-     * @return The new fact-handle associated with the object.
-     */
-    FactHandle insert(Object object);
 
     /**
      * Insert a fact registering JavaBean <code>PropertyChangeListeners</code>
@@ -51,27 +53,7 @@ public interface WorkingMemoryEntryPoint extends EntryPoint {
     FactHandle insert(Object object,
                       boolean dynamic);
 
-    /**
-     * Retract a fact.
-     * 
-     * @param handle
-     *            The fact-handle associated with the fact to retract.
-     */
-    void retract(FactHandle handle);
-
-    /**
-     * Inform the WorkingMemory that a Fact has been modified and that it
-     * should now update the network.
-     * 
-     * @param handle
-     *            The fact-handle associated with the fact to modify.
-     * @param object
-     *            The new value of the fact.
-     */
-    void update(FactHandle handle,
-                Object object);
-
-    public WorkingMemoryEntryPoint getWorkingMemoryEntryPoint(String name);
+    WorkingMemoryEntryPoint getWorkingMemoryEntryPoint(String name);
     
     /**
      * Internal method called by the engine when the session is being disposed, so that the entry point
@@ -79,4 +61,37 @@ public interface WorkingMemoryEntryPoint extends EntryPoint {
      */
     void dispose();
 
+    ObjectTypeConfigurationRegistry getObjectTypeConfigurationRegistry();
+
+    InternalKnowledgeBase getKnowledgeBase();
+
+    void delete(FactHandle factHandle,
+                RuleImpl rule,
+                Activation activation );
+
+    void delete(FactHandle factHandle,
+                RuleImpl rule,
+                Activation activation,
+                FactHandle.State fhState);
+
+    void update(FactHandle handle,
+                Object object,
+                BitMask mask,
+                Class<?> modifiedClass,
+                Activation activation);
+
+    TruthMaintenanceSystem getTruthMaintenanceSystem();
+
+    EntryPointId getEntryPoint();
+    InternalWorkingMemory getInternalWorkingMemory();
+
+    FactHandle getFactHandleByIdentity(Object object);
+
+    void reset();
+
+    ObjectStore getObjectStore();
+
+    FactHandleFactory getHandleFactory();
+
+    EntryPointNode getEntryPointNode();
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 Red Hat, Inc. and/or its affiliates.
+ * Copyright 2016 Red Hat, Inc. and/or its affiliates.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,12 @@
 
 package org.drools.compiler.integrationtests;
 
-import static org.junit.Assert.assertEquals;
-
-import java.io.Serializable;
 import java.util.List;
 
+import org.drools.core.test.model.Cheese;
+import org.drools.core.test.model.Person;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.kie.api.KieBase;
 import org.kie.api.KieServices;
@@ -31,126 +32,106 @@ import org.kie.api.runtime.KieSession;
 import org.kie.api.runtime.rule.FactHandle;
 import org.kie.api.runtime.rule.QueryResults;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 public class DeleteTest {
 
-    @Test
-    public void deleteFactTest() {
-        KieFileSystem kfs = KieServices.Factory.get().newKieFileSystem();
+    private static final String DELETE_TEST_DRL = "delete_test.drl";
 
+    private KieSession ksession;
+
+    @Before
+    public void setUp() {
+        KieFileSystem kfs = KieServices.Factory.get().newKieFileSystem();
         kfs.write(KieServices.Factory.get().getResources()
-                .newClassPathResource("delete_test.drl", DeleteTest.class));
+                .newClassPathResource(DELETE_TEST_DRL, DeleteTest.class));
 
         KieBuilder kbuilder = KieServices.Factory.get().newKieBuilder(kfs);
-
         kbuilder.buildAll();
 
         List<Message> res = kbuilder.getResults().getMessages(Level.ERROR);
-
-        assertEquals(res.toString(), 0, res.size());
+        assertThat(res).isEmpty();
 
         KieBase kbase = KieServices.Factory.get()
                 .newKieContainer(kbuilder.getKieModule().getReleaseId())
                 .getKieBase();
 
-        KieSession ksession = kbase.newKieSession();
+        ksession = kbase.newKieSession();
+    }
 
-        ksession.insert(new Person("Petr", 25));
-
-        FactHandle george = ksession.insert(new Person("George", 19));
-
-        QueryResults results = ksession
-                .getQueryResults("informationsAboutPersons");
-
-        assertEquals(2L, results.iterator().next().get("$countOfPerson"));
-
-        ksession.delete(george);
-
-        results = ksession.getQueryResults("informationsAboutPersons");
-
-        assertEquals(1L, results.iterator().next().get("$countOfPerson"));
-
+    @After
+    public void tearDown() {
         ksession.dispose();
     }
 
-    public class Person implements Serializable {
+    @Test
+    public void deleteFactTest() {
+        ksession.insert(new Person("Petr", 25));
 
-        private static final long serialVersionUID = -6208475520104308723L;
+        FactHandle george = ksession.insert(new Person("George", 19));
+        QueryResults results = ksession.getQueryResults("informationAboutPersons");
+        assertThat(results).isNotEmpty();
+        assertThat(results.iterator().next().get("$countOfPerson")).isEqualTo(2L);
 
-        private int id = 0;
-        private String name = "";
-        private int age = 0;
+        ksession.delete(george);
+        results = ksession.getQueryResults("informationAboutPersons");
+        assertThat(results).isNotEmpty();
+        assertThat(results.iterator().next().get("$countOfPerson")).isEqualTo(1L);
+    }
 
-        public Person() {
-        }
+    @Test
+    public void deleteFactTwiceTest() {
+        FactHandle george = ksession.insert(new Person("George", 19));
+        QueryResults results = ksession.getQueryResults("countPerson");
+        assertThat(results).isNotEmpty();
+        assertThat(results.iterator().next().get("$personCount")).isEqualTo(1L);
 
-        public Person(String name, int age) {
-            super();
-            this.name = name;
-            this.age = age;
-        }
+        ksession.delete(george);
+        results = ksession.getQueryResults("countPerson");
+        assertThat(results).isNotEmpty();
+        assertThat(results.iterator().next().get("$personCount")).isEqualTo(0L);
 
-        public int getId() {
-            return id;
-        }
+        ksession.delete(george);
+        assertThat(results).isNotEmpty();
+        assertThat(results.iterator().next().get("$personCount")).isEqualTo(0L);
+    }
 
-        public void setId(int id) {
-            this.id = id;
-        }
+    @Test(expected = IllegalArgumentException.class)
+    public void deleteNullFactTest() {
+        ksession.delete(null);
+    }
 
-        public String getName() {
-            return name;
-        }
+    @Test
+    public void deleteUpdatedFactTest() {
+        FactHandle person = ksession.insert(new Person("George", 18));
 
-        public void setName(String name) {
-            this.name = name;
-        }
+        ksession.update(person, new Person("John", 21));
 
-        public int getAge() {
-            return age;
-        }
+        QueryResults results = ksession.getQueryResults("countPerson");
+        assertThat(results).isNotEmpty();
+        assertThat(results.iterator().next().get("$personCount")).isEqualTo(1L);
 
-        public void setAge(int age) {
-            this.age = age;
-        }
+        ksession.delete(person);
+        results = ksession.getQueryResults("countPerson");
+        assertThat(results).isNotEmpty();
+        assertThat(results.iterator().next().get("$personCount")).isEqualTo(0L);
+    }
 
-        @Override
-        public String toString() {
-            return String.format("%s[id='%s', name='%s']",
-                    getClass().getName(), id, name);
-        }
+    @Test
+    public void deleteUpdatedFactDifferentClassTest() {
+        FactHandle fact = ksession.insert(new Person("George", 18));
 
-        @Override
-        public int hashCode() {
-            final int prime = 31;
-            int result = 1;
-            result = prime * result + id;
-            result = prime * result + ((name == null) ? 0 : name.hashCode());
-            return result;
-        }
+        assertThat(ksession.getObjects()).hasSize(1);
+        assertThat(ksession.getObjects().iterator().next()).isInstanceOf(Person.class);
 
-        @Override
-        public boolean equals(Object obj) {
-            if (this == obj) {
-                return true;
-            }
-            if (obj == null) {
-                return false;
-            }
-            if (getClass() != obj.getClass()) {
-                return false;
-            }
-            Person other = (Person) obj;
-            if (id != other.id) {
-                return false;
-            }
-            if (name == null) {
-                if (other.name != null) {
-                    return false;
-                }
-            } else if (!name.equals(other.name)) {
-                return false;
-            }
-            return true;
-        }
+        ksession.update(fact, new Cheese("Cheddar", 50));
+
+        assertThat(ksession.getObjects()).hasSize(1);
+        assertThat(ksession.getObjects().iterator().next()).isInstanceOf(Cheese.class);
+
+        ksession.delete(fact);
+
+        assertThat(ksession.getObjects()).isEmpty();
+
     }
 }

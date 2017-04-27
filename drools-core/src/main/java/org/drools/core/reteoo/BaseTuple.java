@@ -42,6 +42,8 @@ public abstract class BaseTuple implements Tuple {
     protected Tuple handlePrevious;
     protected Tuple handleNext;
 
+    private boolean expired;
+
     public Object getObject(Declaration declaration) {
         return getObject(declaration.getPattern().getOffset());
     }
@@ -70,6 +72,16 @@ public abstract class BaseTuple implements Tuple {
 
     public InternalFactHandle getFactHandle() {
         return handle;
+    }
+
+    /**
+     * This method is used by the consequence invoker (generated via asm by the ConsequenceGenerator)
+     * to always pass to the consequence the original fact handle even in case when it has been
+     * cloned and linked by a WindowNode
+     */
+    public InternalFactHandle getOriginalFactHandle() {
+        InternalFactHandle linkedFH = handle.isEvent() ? ((EventFactHandle)handle).getLinkedFactHandle() : null;
+        return linkedFH != null ? linkedFH : handle;
     }
 
     public void setFactHandle( InternalFactHandle handle ) {
@@ -179,5 +191,15 @@ public abstract class BaseTuple implements Tuple {
     @Override
     public void setHandleNext(Tuple handleNext) {
         this.handleNext = handleNext;
+    }
+
+    @Override
+    public boolean isExpired() {
+        return expired;
+    }
+
+    @Override
+    public void setExpired( boolean expired ) {
+        this.expired = expired;
     }
 }

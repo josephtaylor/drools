@@ -6,7 +6,7 @@
   <parent>
     <groupId>org.drools</groupId>
     <artifactId>drools</artifactId>
-    <version>7.0.0-SNAPSHOT</version>
+    <version>7.1.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>drools-examples-api</artifactId>
@@ -36,6 +36,7 @@
     <module>kiecontainer-from-kierepo</module>
     <module>multiple-kbases</module>
     <module>reactive-kiesession</module>
+    <module>ruleunit</module>
   </modules>
 
 

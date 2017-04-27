@@ -16,18 +16,6 @@
 
 package org.drools.core.reteoo;
 
-import org.drools.core.common.BaseNode;
-import org.drools.core.common.DroolsObjectInputStream;
-import org.drools.core.common.DroolsObjectOutputStream;
-import org.drools.core.common.InternalWorkingMemory;
-import org.drools.core.common.MemoryFactory;
-import org.drools.core.definitions.rule.impl.RuleImpl;
-import org.drools.core.impl.InternalKnowledgeBase;
-import org.drools.core.phreak.AddRemoveRule;
-import org.drools.core.rule.InvalidPatternException;
-import org.drools.core.rule.WindowDeclaration;
-import org.kie.api.definition.rule.Rule;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.Externalizable;
@@ -42,6 +30,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
+import org.drools.core.common.BaseNode;
+import org.drools.core.common.DroolsObjectInputStream;
+import org.drools.core.common.DroolsObjectOutputStream;
+import org.drools.core.common.InternalWorkingMemory;
+import org.drools.core.common.MemoryFactory;
+import org.drools.core.common.NetworkNode;
+import org.drools.core.definitions.rule.impl.RuleImpl;
+import org.drools.core.impl.InternalKnowledgeBase;
+import org.drools.core.phreak.AddRemoveRule;
+import org.drools.core.rule.InvalidPatternException;
+import org.drools.core.rule.WindowDeclaration;
+import org.kie.api.definition.rule.Rule;
+
+import static org.drools.core.impl.StatefulKnowledgeSessionImpl.DEFAULT_RULE_UNIT;
 
 /**
  * Builds the Rete-OO network for a <code>Package</code>.
@@ -87,7 +91,7 @@ public class ReteooBuilder
         this.namedWindows = new HashMap<String, WindowNode>();
 
         //Set to 1 as Rete node is set to 0
-        this.idGenerator = new IdGenerator( 1 );
+        this.idGenerator = new IdGenerator();
         this.ruleBuilder = kBase.getConfiguration().getComponentFactory().getRuleBuilderFactory().newRuleBuilder();
     }
 
@@ -104,8 +108,7 @@ public class ReteooBuilder
      */
     public synchronized void addRule(final RuleImpl rule) throws InvalidPatternException {
         final List<TerminalNode> terminals = this.ruleBuilder.addRule( rule,
-                                                                       this.kBase,
-                                                                       this.idGenerator );
+                                                                       this.kBase );
 
         BaseNode[] nodes = terminals.toArray( new BaseNode[terminals.size()] );
         this.rules.put( rule.getFullyQualifiedName(), nodes );
@@ -116,14 +119,12 @@ public class ReteooBuilder
 
     public void addEntryPoint( String id ) {
         this.ruleBuilder.addEntryPoint( id,
-                                        this.kBase,
-                                        this.idGenerator );
+                                        this.kBase );
     }
 
     public synchronized void addNamedWindow( WindowDeclaration window ) {
         final WindowNode wnode = this.ruleBuilder.addWindowNode( window,
-                                                                 this.kBase,
-                                                                 this.idGenerator );
+                                                                 this.kBase );
 
         this.namedWindows.put( window.getName(),
                                wnode );
@@ -154,34 +155,34 @@ public class ReteooBuilder
         return this.rules;
     }
 
-    public synchronized void removeRule(final RuleImpl rule) {
+    public synchronized void removeRules(List<RuleImpl> rulesToBeRemoved) {
         // reset working memories for potential propagation
         InternalWorkingMemory[] workingMemories = this.kBase.getWorkingMemories();
 
-        final RuleRemovalContext context = new RuleRemovalContext( rule );
-        context.setKnowledgeBase(kBase);
+        for (RuleImpl rule : rulesToBeRemoved) {
+            if (rule.hasChildren() && !rulesToBeRemoved.containsAll( rule.getChildren() )) {
+                throw new RuntimeException("Cannot remove parent rule " + rule + " without having removed all its chikdren");
+            }
 
-        for (BaseNode node : rules.remove( rule.getFullyQualifiedName() )) {
-            removeTerminalNode(context, (TerminalNode) node, workingMemories);
-        }
+            final RuleRemovalContext context = new RuleRemovalContext( rule );
+            context.setKnowledgeBase( kBase );
 
-        if (rule.isQuery()) {
-            this.queries.remove( rule.getName() );
+            for ( BaseNode node : rules.remove( rule.getFullyQualifiedName() ) ) {
+                removeTerminalNode( context, (TerminalNode) node, workingMemories );
+            }
+
+            if ( rule.isQuery() ) {
+                this.queries.remove( rule.getName() );
+            }
+
+            if (rule.getParent() != null && !rulesToBeRemoved.contains( rule.getParent() )) {
+                rule.getParent().removeChild( rule );
+            }
         }
     }
 
     public void removeTerminalNode(RuleRemovalContext context, TerminalNode tn, InternalWorkingMemory[] workingMemories)  {
-        if ( this.kBase.getConfiguration().isPhreakEnabled() ) {
-            AddRemoveRule.removeRule( tn, workingMemories, kBase );
-        }
-
-        RuleRemovalContext.CleanupAdapter adapter = null;
-        if ( !this.kBase.getConfiguration().isPhreakEnabled() ) {
-            if ( tn instanceof RuleTerminalNode) {
-                adapter = new RuleTerminalNode.RTNCleanupAdapter( (RuleTerminalNode) tn );
-            }
-            context.setCleanupAdapter( adapter );
-        }
+        AddRemoveRule.removeRule( tn, workingMemories, kBase );
 
         BaseNode node = (BaseNode) tn;
         removeNodeAssociation(node, context.getRule());
@@ -218,7 +219,7 @@ public class ReteooBuilder
                 removed = removeLeftTupleNode(wms, context, stillInUse, node);
             }
 
-            if ( removed || !kBase.getConfiguration().isPhreakEnabled() ) {
+            if ( removed ) {
                 // reteoo requires to call remove on the OTN for tuples cleanup
                 if (NodeTypeEnums.isBetaNode(node) && !((BetaNode) node).isRightInputIsRiaNode()) {
                     alphas.add(((BetaNode) node).getRightInput());
@@ -241,11 +242,9 @@ public class ReteooBuilder
 
         if (removed) {
             stillInUse.remove( node.getId() );
-            if (kBase.getConfiguration().isPhreakEnabled()) {
-                // phreak must clear node memories, although this should ideally be pushed into AddRemoveRule
-                for (InternalWorkingMemory workingMemory : wms) {
-                    workingMemory.clearNodeMemory((MemoryFactory) node);
-                }
+            // phreak must clear node memories, although this should ideally be pushed into AddRemoveRule
+            for (InternalWorkingMemory workingMemory : wms) {
+                workingMemory.clearNodeMemory((MemoryFactory) node);
             }
         } else {
             stillInUse.put( node.getId(), node );
@@ -264,19 +263,12 @@ public class ReteooBuilder
 
         if ( !removed ) {
             stillInUse.put( node.getId(), node );
-            if (!kBase.getConfiguration().isPhreakEnabled()) {
-                // reteoo requires to call remove on the OTN for tuples cleanup
-                if (parent != null && parent.getType() != NodeTypeEnums.EntryPointNode) {
-                    removeObjectSource(wms, stillInUse, removedNodes, parent, context);
-                }
-            }
         } else {
             stillInUse.remove(node.getId());
             removedNodes.add(node.getId());
 
             if ( node.getType() != NodeTypeEnums.ObjectTypeNode &&
-                 node.getType() != NodeTypeEnums.AlphaNode &&
-                 kBase.getConfiguration().isPhreakEnabled() ) {
+                 node.getType() != NodeTypeEnums.AlphaNode ) {
                 // phreak must clear node memories, although this should ideally be pushed into AddRemoveRule
                 for (InternalWorkingMemory workingMemory : wms) {
                     workingMemory.clearNodeMemory( (MemoryFactory) node);
@@ -370,26 +362,61 @@ public class ReteooBuilder
         }
     }
 
-    public static class IdGenerator
-            implements
-            Externalizable {
+    public static class IdGenerator implements Externalizable {
+        private static final String DEFAULT_TOPIC = "DEFAULT_TOPIC";
+
+        private Map<String, InternalIdGenerator> generators = new ConcurrentHashMap<>();
+
+        public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
+            generators = (Map<String, InternalIdGenerator>) in.readObject();
+        }
+
+        public void writeExternal(ObjectOutput out) throws IOException {
+            out.writeObject( generators );
+        }
+
+        public int getNextId() {
+            return getNextId( DEFAULT_TOPIC );
+        }
+
+        public int getNextId(String topic) {
+            return generators.computeIfAbsent( topic, key -> new InternalIdGenerator( 1 ) ).getNextId();
+        }
+
+        public synchronized void releaseId( RuleImpl rule, NetworkNode node ) {
+            generators.get( DEFAULT_TOPIC ).releaseId( node.getId() );
+            if (node instanceof MemoryFactory) {
+                String unit = rule != null && rule.getRuleUnitClassName() != null ? rule.getRuleUnitClassName() : DEFAULT_RULE_UNIT;
+                generators.get( unit ).releaseId( ( (MemoryFactory) node ).getMemoryId() );
+            }
+        }
+
+        public int getLastId() {
+            return getLastId( DEFAULT_TOPIC );
+        }
+
+        public int getLastId(String topic) {
+            InternalIdGenerator gen = generators.get( topic );
+            return gen != null ? gen.getLastId() : 0;
+        }
+    }
+
+    private static class InternalIdGenerator implements Externalizable {
 
         private static final long serialVersionUID = 510l;
 
         private Queue<Integer>    recycledIds;
         private int               nextId;
 
-        public IdGenerator() {
-        }
+        public InternalIdGenerator() { }
 
-        public IdGenerator(final int firstId) {
+        public InternalIdGenerator(final int firstId) {
             this.nextId = firstId;
             this.recycledIds = new LinkedList<Integer>();
         }
 
         @SuppressWarnings("unchecked")
-        public void readExternal(ObjectInput in) throws IOException,
-                                                        ClassNotFoundException {
+        public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
             recycledIds = (Queue<Integer>) in.readObject();
             nextId = in.readInt();
         }
@@ -411,7 +438,6 @@ public class ReteooBuilder
         public int getLastId() {
             return this.nextId - 1;
         }
-
     }
 
     public void writeExternal(ObjectOutput out) throws IOException {

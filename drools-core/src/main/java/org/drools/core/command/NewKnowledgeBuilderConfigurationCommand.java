@@ -16,15 +16,11 @@
 
 package org.drools.core.command;
 
-import org.drools.core.command.impl.GenericCommand;
+import org.drools.core.command.impl.ExecutableCommand;
 import org.kie.internal.builder.KnowledgeBuilderFactory;
-import org.kie.internal.command.Context;
+import org.kie.api.runtime.Context;
 
-/**
- *
- * @author salaboy
- */
-public class NewKnowledgeBuilderConfigurationCommand implements GenericCommand<Void>{
+public class NewKnowledgeBuilderConfigurationCommand implements ExecutableCommand<Void> {
     private String kbuilderConfId;
 
     public NewKnowledgeBuilderConfigurationCommand(String kbuilderConfId) {

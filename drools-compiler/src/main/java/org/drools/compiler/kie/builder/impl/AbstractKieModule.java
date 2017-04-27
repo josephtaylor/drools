@@ -47,6 +47,7 @@ import org.kie.internal.builder.CompositeKnowledgeBuilder;
 import org.kie.internal.builder.DecisionTableConfiguration;
 import org.kie.internal.builder.DecisionTableInputType;
 import org.kie.internal.builder.KnowledgeBuilder;
+import org.kie.internal.builder.KnowledgeBuilderConfiguration;
 import org.kie.internal.builder.KnowledgeBuilderError;
 import org.kie.internal.builder.KnowledgeBuilderFactory;
 import org.kie.internal.builder.KnowledgeBuilderResult;
@@ -215,7 +216,7 @@ public abstract class AbstractKieModule
             if (includeModule == null) {
                 String text = "Unable to build KieBase, could not find include: " + include;
                 log.error(text);
-                messages.addMessage(Message.Level.ERROR, KieModuleModelImpl.KMODULE_SRC_PATH, text);
+                messages.addMessage(Message.Level.ERROR, KieModuleModelImpl.KMODULE_SRC_PATH, text).setKieBaseName( kBaseModel.getName() );
                 allIncludesAreValid = false;
                 continue;
             }
@@ -244,13 +245,13 @@ public abstract class AbstractKieModule
 
         if ( kbuilder.hasErrors() ) {
             for ( KnowledgeBuilderError error : kbuilder.getErrors() ) {
-                messages.addMessage( error );
+                messages.addMessage( error ).setKieBaseName( kBaseModel.getName() );
             }
             log.error("Unable to build KieBaseModel:" + kBaseModel.getName() + "\n" + kbuilder.getErrors().toString());
         }
         if ( kbuilder.hasResults( ResultSeverity.WARNING ) ) {
             for ( KnowledgeBuilderResult warn : kbuilder.getResults( ResultSeverity.WARNING ) ) {
-                messages.addMessage( warn );
+                messages.addMessage( warn ).setKieBaseName( kBaseModel.getName() );
             }
             log.warn( "Warning : " + kBaseModel.getName() + "\n" + kbuilder.getResults( ResultSeverity.WARNING ).toString() );
         }
@@ -290,12 +291,20 @@ public abstract class AbstractKieModule
     private static KnowledgeBuilderConfigurationImpl getBuilderConfiguration(KieBaseModelImpl kBaseModel, KieProject kieProject, AbstractKieModule kModule) {
         KnowledgeBuilderConfigurationImpl pconf = new KnowledgeBuilderConfigurationImpl(kieProject.getClonedClassLoader());
         pconf.setCompilationCache(kModule.getCompilationCache(kBaseModel.getName()));
+        setModelPropsOnConf( kBaseModel, pconf );
+        return pconf;
+    }
 
+    private static void setModelPropsOnConf( KieBaseModelImpl kBaseModel, KnowledgeBuilderConfigurationImpl pconf ) {
         KieModuleModel kModuleModel = kBaseModel.getKModule();
         for (Map.Entry<String, String> entry : kModuleModel.getConfigurationProperties().entrySet()) {
             pconf.setProperty(entry.getKey(), entry.getValue());
         }
+    }
 
+    public KnowledgeBuilderConfiguration getBuilderConfiguration(KieBaseModel kBaseModel) {
+        KnowledgeBuilderConfigurationImpl pconf = new KnowledgeBuilderConfigurationImpl();
+        setModelPropsOnConf( (KieBaseModelImpl) kBaseModel, pconf );
         return pconf;
     }
 

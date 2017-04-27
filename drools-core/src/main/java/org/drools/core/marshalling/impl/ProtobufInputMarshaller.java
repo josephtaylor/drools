@@ -18,6 +18,7 @@ package org.drools.core.marshalling.impl;
 
 import com.google.protobuf.ExtensionRegistry;
 import org.drools.core.SessionConfiguration;
+import org.drools.core.WorkingMemoryEntryPoint;
 import org.drools.core.common.ActivationsFilter;
 import org.drools.core.common.AgendaGroupQueueImpl;
 import org.drools.core.common.DefaultFactHandle;
@@ -26,7 +27,6 @@ import org.drools.core.common.EventFactHandle;
 import org.drools.core.common.InternalAgenda;
 import org.drools.core.common.InternalFactHandle;
 import org.drools.core.common.InternalWorkingMemory;
-import org.drools.core.common.InternalWorkingMemoryEntryPoint;
 import org.drools.core.common.NamedEntryPoint;
 import org.drools.core.common.ObjectStore;
 import org.drools.core.common.PropagationContextFactory;
@@ -81,7 +81,6 @@ import java.util.concurrent.TimeUnit;
 /**
  * An input marshaller that uses protobuf. 
  * 
- * @author etirelli
  */
 public class ProtobufInputMarshaller {
     // NOTE: all variables prefixed with _ (underscore) are protobuf structs
@@ -242,8 +241,8 @@ public class ProtobufInputMarshaller {
 
         List<PropagationContext> pctxs = new ArrayList<PropagationContext>();
 
-        if ( context.kBase.getConfiguration().isPhreakEnabled() || _session.getRuleData().hasInitialFact() ) {
-            ((StatefulKnowledgeSessionImpl)context.wm).initInitialFact(context.kBase, context);
+        if ( _session.getRuleData().hasInitialFact() ) {
+            session.setInitialFactHandle( session.initInitialFact(context.kBase, context) );
             context.handles.put( session.getInitialFactHandle().getId(), session.getInitialFactHandle() );
         }
 
@@ -251,7 +250,7 @@ public class ProtobufInputMarshaller {
             EntryPoint wmep = ((StatefulKnowledgeSessionImpl)context.wm).getEntryPointMap().get(_ep.getEntryPointId());
             readFactHandles( context,
                              _ep,
-                             ((InternalWorkingMemoryEntryPoint) wmep).getObjectStore(),
+                             ((WorkingMemoryEntryPoint) wmep).getObjectStore(),
                              pctxs );
 
             context.filter.fireRNEAs( context.wm );
@@ -490,12 +489,12 @@ public class ProtobufInputMarshaller {
                                             InternalFactHandle handle,
                                             List<PropagationContext> pctxs) {
         Object object = handle.getObject();
-        InternalWorkingMemoryEntryPoint ep = handle.getEntryPoint();
+        WorkingMemoryEntryPoint ep = handle.getEntryPoint();
         ObjectTypeConf typeConf = ep.getObjectTypeConfigurationRegistry().getObjectTypeConf( ep.getEntryPoint(), object );
 
         PropagationContextFactory pctxFactory = wm.getKnowledgeBase().getConfiguration().getComponentFactory().getPropagationContextFactory();
 
-        PropagationContext propagationContext = pctxFactory.createPropagationContext(wm.getNextPropagationIdCounter(), PropagationContext.INSERTION, null, null, handle, ep.getEntryPoint(), context);
+        PropagationContext propagationContext = pctxFactory.createPropagationContext(wm.getNextPropagationIdCounter(), PropagationContext.Type.INSERTION, null, null, handle, ep.getEntryPoint(), context);
         // keeping this list for a later cleanup is necessary because of the lazy propagations that might occur
         pctxs.add( propagationContext );
 
@@ -544,7 +543,7 @@ public class ProtobufInputMarshaller {
                 handle = new DefaultFactHandle( _handle.getId(),
                                                 object,
                                                 _handle.getRecency(),
-                                                (InternalWorkingMemoryEntryPoint) entryPoint,
+                                                (WorkingMemoryEntryPoint) entryPoint,
                                                 typeConf != null && typeConf.isTrait() );
                 break;
             }
@@ -560,9 +559,10 @@ public class ProtobufInputMarshaller {
                                               _handle.getRecency(),
                                               _handle.getTimestamp(),
                                               _handle.getDuration(),
-                                              (InternalWorkingMemoryEntryPoint) entryPoint,
+                                              (WorkingMemoryEntryPoint) entryPoint,
                                               typeConf != null && typeConf.isTrait() );
                 ((EventFactHandle) handle).setExpired( _handle.getIsExpired() );
+                ((EventFactHandle) handle).setOtnCount( _handle.getOtnCount() );
                 // the event is re-propagated through the network, so the activations counter will be recalculated
                 //((EventFactHandle) handle).setActivationsCount( _handle.getActivationsCount() );
                 break;

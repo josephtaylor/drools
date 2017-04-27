@@ -16,17 +16,24 @@
 
 package org.drools.core.common;
 
-import org.drools.core.reteoo.EntryPointNode;
-import org.drools.core.reteoo.ReteooBuilder;
-import org.drools.core.reteoo.RuleRemovalContext;
-import org.drools.core.reteoo.builder.BuildContext;
-import org.drools.core.spi.RuleComponent;
-import org.drools.core.util.Bag;
-import org.kie.api.definition.rule.Rule;
-
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
+import java.util.Collection;
+
+import org.drools.core.definitions.rule.impl.RuleImpl;
+import org.drools.core.reteoo.EntryPointNode;
+import org.drools.core.reteoo.LeftTupleSource;
+import org.drools.core.reteoo.ObjectSource;
+import org.drools.core.reteoo.ObjectTypeNode;
+import org.drools.core.reteoo.ReteooBuilder;
+import org.drools.core.reteoo.RuleRemovalContext;
+import org.drools.core.reteoo.Sink;
+import org.drools.core.reteoo.builder.BuildContext;
+import org.drools.core.util.Bag;
+import org.kie.api.definition.rule.Rule;
+
+import static org.drools.core.impl.StatefulKnowledgeSessionImpl.DEFAULT_RULE_UNIT;
 
 /**
  * The base class for all Rete nodes.
@@ -36,6 +43,7 @@ public abstract class BaseNode
     NetworkNode {
 
     protected int                      id;
+    protected int                      memoryId = -1;
     protected RuleBasePartitionId      partitionId;
     protected boolean                  partitionsEnabled;
     protected Bag<Rule>                associations;
@@ -67,6 +75,7 @@ public abstract class BaseNode
     public void readExternal(ObjectInput in) throws IOException,
                                             ClassNotFoundException {
         id = in.readInt();
+        memoryId = in.readInt();
         partitionId = (RuleBasePartitionId) in.readObject();
         partitionsEnabled = in.readBoolean();
         associations = (Bag<Rule>) in.readObject();
@@ -76,6 +85,7 @@ public abstract class BaseNode
 
     public void writeExternal(ObjectOutput out) throws IOException {
         out.writeInt( id );
+        out.writeInt( memoryId );
         out.writeObject( partitionId );
         out.writeBoolean( partitionsEnabled );
         out.writeObject( associations );
@@ -89,9 +99,24 @@ public abstract class BaseNode
     public int getId() {
         return this.id;
     }
-    
+
     public void setId(int id) {
         this.id = id;
+    }
+
+    public int getMemoryId() {
+        if (memoryId < 0) {
+            throw new UnsupportedOperationException();
+        }
+        return memoryId;
+    }
+
+    protected void initMemoryId( BuildContext context ) {
+        if (context != null && this instanceof MemoryFactory) {
+            RuleImpl rule = context.getRule();
+            String unit = rule != null && rule.getRuleUnitClassName() != null ? rule.getRuleUnitClassName() : DEFAULT_RULE_UNIT;
+            memoryId = context.getNextId( unit );
+        }
     }
 
     public boolean isStreamMode() {
@@ -120,7 +145,7 @@ public abstract class BaseNode
                        InternalWorkingMemory[] workingMemories) {
         boolean removed = doRemove( context, builder, workingMemories );
         if ( !this.isInUse() && !(this instanceof EntryPointNode) ) {
-            builder.getIdGenerator().releaseId( this.getId() );
+            builder.getIdGenerator().releaseId( context.getRule(), this );
         }
         return removed;
     }
@@ -137,6 +162,8 @@ public abstract class BaseNode
      */
     public abstract boolean isInUse();
 
+    public abstract ObjectTypeNode getObjectTypeNode();
+
     public String toString() {
         return "[" + this.getClass().getSimpleName() + "(" + this.id + ")]";
     }
@@ -151,8 +178,12 @@ public abstract class BaseNode
     /**
      * Sets the partition this node belongs to
      */
-    public void setPartitionId(final RuleBasePartitionId partitionId) {
+    public void setPartitionId(BuildContext context, RuleBasePartitionId partitionId) {
         this.partitionId = partitionId;
+    }
+
+    public void setPartitionsEnabled( boolean partitionsEnabled ) {
+        this.partitionsEnabled = partitionsEnabled;
     }
 
     /**
@@ -162,7 +193,7 @@ public abstract class BaseNode
         this.associations.add( rule );
     }
 
-    public void addAssociation( Rule rule, RuleComponent ruleComponent ) {
+    public void addAssociation( BuildContext context, Rule rule ) {
         addAssociation( rule );
     }
 
@@ -171,7 +202,7 @@ public abstract class BaseNode
      * associations map.
      */
     public boolean removeAssociation( Rule rule ) {
-        return this.associations.removeKey(rule);
+        return this.associations.remove(rule);
     }
 
     public int getAssociationsSize() {
@@ -199,5 +230,21 @@ public abstract class BaseNode
     @Override
     public final int hashCode() {
         return hashcode;
+    }
+
+    public Sink[] getSinks() {
+        Sink[] sinks = null;
+        if (this instanceof EntryPointNode ) {
+            EntryPointNode source = (EntryPointNode) this;
+            Collection<ObjectTypeNode> otns = source.getObjectTypeNodes().values();
+            sinks = otns.toArray(new Sink[otns.size()]);
+        } else if (this instanceof ObjectSource ) {
+            ObjectSource source = (ObjectSource) this;
+            sinks = source.getObjectSinkPropagator().getSinks();
+        } else if (this instanceof LeftTupleSource ) {
+            LeftTupleSource source = (LeftTupleSource) this;
+            sinks = source.getSinkPropagator().getSinks();
+        }
+        return sinks;
     }
 }

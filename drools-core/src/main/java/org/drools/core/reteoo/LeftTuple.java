@@ -15,6 +15,9 @@
 
 package org.drools.core.reteoo;
 
+import java.util.Collection;
+import java.util.Collections;
+
 import org.drools.core.spi.Tuple;
 
 public interface LeftTuple extends Tuple {
@@ -56,4 +59,11 @@ public interface LeftTuple extends Tuple {
 
     short getStagedTypeForQueries();
     void setStagedTypeForQueries( short stagedTypeForQueries );
+
+    boolean isStagedOnRight();
+
+    default Collection<Object> getAccumulatedObjects() {
+        return Collections.emptyList();
+    }
+
 }

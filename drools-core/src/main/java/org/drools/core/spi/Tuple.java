@@ -78,7 +78,6 @@ public interface Tuple extends Serializable, Entry<Tuple> {
 
     /**
      * Returns the size of this tuple in number of elements (patterns)
-     * @return
      */
     int size();
 
@@ -88,6 +87,7 @@ public interface Tuple extends Serializable, Entry<Tuple> {
 
     InternalFactHandle getFactHandle();
     void setFactHandle( InternalFactHandle handle );
+    InternalFactHandle getOriginalFactHandle();
 
     /**
      * Returns the ReteTuple that contains the "elements"
@@ -157,6 +157,8 @@ public interface Tuple extends Serializable, Entry<Tuple> {
 
     <N extends NetworkNode> N getTupleSource();
 
-    void modifyTuple( PropagationContext context, InternalWorkingMemory workingMemory );
     void retractTuple( PropagationContext context, InternalWorkingMemory workingMemory );
+
+    boolean isExpired();
+    void setExpired( boolean expired );
 }

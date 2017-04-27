@@ -33,7 +33,7 @@ public class PhreakPropagationContextFactory implements PropagationContextFactor
     }
 
     public PropagationContext createPropagationContext(final long number,
-                                                       final int type,
+                                                       final PropagationContext.Type type,
                                                        final RuleImpl rule,
                                                        final Tuple leftTuple,
                                                        final InternalFactHandle factHandle,
@@ -45,7 +45,7 @@ public class PhreakPropagationContextFactory implements PropagationContextFactor
     }
 
     public PropagationContext createPropagationContext(final long number,
-                                                       final int type,
+                                                       final PropagationContext.Type type,
                                                        final RuleImpl rule,
                                                        final Tuple leftTuple,
                                                        final InternalFactHandle factHandle,
@@ -55,7 +55,7 @@ public class PhreakPropagationContextFactory implements PropagationContextFactor
     }
 
     public PropagationContext createPropagationContext(final long number,
-                                                       final int type,
+                                                       final PropagationContext.Type type,
                                                        final RuleImpl rule,
                                                        final Tuple leftTuple,
                                                        final InternalFactHandle factHandle,
@@ -67,7 +67,7 @@ public class PhreakPropagationContextFactory implements PropagationContextFactor
     }
 
     public PropagationContext createPropagationContext(final long number,
-                                                       final int type,
+                                                       final PropagationContext.Type type,
                                                        final RuleImpl rule,
                                                        final Tuple leftTuple,
                                                        final InternalFactHandle factHandle,
@@ -76,10 +76,18 @@ public class PhreakPropagationContextFactory implements PropagationContextFactor
     }
 
     public PropagationContext createPropagationContext(final long number,
-                                                       final int type,
+                                                       final PropagationContext.Type type,
                                                        final RuleImpl rule,
                                                        final Tuple leftTuple,
                                                        final InternalFactHandle factHandle) {
         return new PhreakPropagationContext(number, type, rule, leftTuple, factHandle);
+    }
+
+    public static PropagationContext createPropagationContextForFact( InternalWorkingMemory workingMemory, InternalFactHandle factHandle, PropagationContext.Type propagationType ) {
+        PropagationContextFactory pctxFactory = workingMemory.getKnowledgeBase().getConfiguration().getComponentFactory().getPropagationContextFactory();
+
+        // if the fact is still in the working memory (since it may have been previously retracted already
+        return pctxFactory.createPropagationContext( workingMemory.getNextPropagationIdCounter(), propagationType,
+                                                     null, null, factHandle );
     }
 }

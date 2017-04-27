@@ -15,14 +15,12 @@
 
 package org.drools.compiler.integrationtests;
 
-import static org.junit.Assert.assertEquals;
-
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import org.drools.core.time.SessionPseudoClock;
+import org.kie.api.time.SessionPseudoClock;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -39,6 +37,8 @@ import org.kie.api.runtime.KieSessionConfiguration;
 import org.kie.api.runtime.conf.ClockTypeOption;
 import org.kie.api.runtime.rule.EntryPoint;
 import org.kie.internal.KnowledgeBaseFactory;
+
+import static org.junit.Assert.assertEquals;
 
 public class WindowTest {
 

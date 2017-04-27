@@ -16,6 +16,13 @@
 
 package org.drools.core.reteoo;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Properties;
+
 import org.drools.core.RuleBaseConfiguration;
 import org.drools.core.base.ClassObjectType;
 import org.drools.core.common.DefaultFactHandle;
@@ -34,13 +41,6 @@ import org.junit.Test;
 import org.kie.api.runtime.rule.FactHandle;
 import org.kie.internal.KnowledgeBaseFactory;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Properties;
-
 import static org.junit.Assert.*;
 
 public class ReteTest extends DroolsTestCase {
@@ -54,8 +54,7 @@ public class ReteTest extends DroolsTestCase {
         this.kBase = (InternalKnowledgeBase) KnowledgeBaseFactory.newKnowledgeBase();
 
         this.pctxFactory = kBase.getConfiguration().getComponentFactory().getPropagationContextFactory();
-        this.buildContext = new BuildContext(kBase,
-                                             kBase.getReteooBuilder().getIdGenerator());
+        this.buildContext = new BuildContext(kBase);
 
         this.entryPoint = buildContext.getKnowledgeBase().getRete().getEntryPointNodes().values().iterator().next();;
     }
@@ -129,7 +128,7 @@ public class ReteTest extends DroolsTestCase {
                                                            new ArrayList());
         rete.assertObject(h1,
                           pctxFactory.createPropagationContext(0,
-                                                               PropagationContext.INSERTION,
+                                                               PropagationContext.Type.INSERTION,
                                                                null,
                                                                null,
                                                                null),
@@ -139,7 +138,7 @@ public class ReteTest extends DroolsTestCase {
         h1.setObject(new LinkedList());
         rete.assertObject(h1,
                           pctxFactory.createPropagationContext(0,
-                                                               PropagationContext.INSERTION,
+                                                               PropagationContext.Type.INSERTION,
                                                                null,
                                                                null,
                                                                null),
@@ -182,7 +181,7 @@ public class ReteTest extends DroolsTestCase {
 
         rete.assertObject(h1,
                           pctxFactory.createPropagationContext(0,
-                                                               PropagationContext.INSERTION,
+                                                               PropagationContext.Type.INSERTION,
                                                                null,
                                                                null,
                                                                null),
@@ -198,7 +197,7 @@ public class ReteTest extends DroolsTestCase {
 
         rete.assertObject(h2,
                           pctxFactory.createPropagationContext(0,
-                                                               PropagationContext.INSERTION,
+                                                               PropagationContext.Type.INSERTION,
                                                                null,
                                                                null,
                                                                null),
@@ -334,7 +333,7 @@ public class ReteTest extends DroolsTestCase {
 
         rete.assertObject(h1,
                           pctxFactory.createPropagationContext(0,
-                                                               PropagationContext.INSERTION,
+                                                               PropagationContext.Type.INSERTION,
                                                                null,
                                                                null,
                                                                null),
@@ -352,7 +351,7 @@ public class ReteTest extends DroolsTestCase {
         // need  to assert first, to force it to build  up the cache
         rete.assertObject(h2,
                           pctxFactory.createPropagationContext(0,
-                                                               PropagationContext.INSERTION,
+                                                               PropagationContext.Type.INSERTION,
                                                                null,
                                                                null,
                                                                null),
@@ -360,7 +359,7 @@ public class ReteTest extends DroolsTestCase {
 
         rete.retractObject(h2,
                            pctxFactory.createPropagationContext(0,
-                                                                PropagationContext.INSERTION,
+                                                                PropagationContext.Type.INSERTION,
                                                                 null,
                                                                 null,
                                                                 null),
@@ -400,7 +399,7 @@ public class ReteTest extends DroolsTestCase {
 
         rete.assertObject(h1,
                           pctxFactory.createPropagationContext(0,
-                                                               PropagationContext.INSERTION,
+                                                               PropagationContext.Type.INSERTION,
                                                                null,
                                                                null,
                                                                null),
@@ -419,8 +418,7 @@ public class ReteTest extends DroolsTestCase {
                                "org.drools.core.test.model.Cheese");
         RuleBaseConfiguration conf = new RuleBaseConfiguration(properties);
         InternalKnowledgeBase kBase = (InternalKnowledgeBase) KnowledgeBaseFactory.newKnowledgeBase(conf);
-        buildContext = new BuildContext(kBase,
-                                        kBase.getReteooBuilder().getIdGenerator());
+        buildContext = new BuildContext(kBase);
         final StatefulKnowledgeSessionImpl ksession = new StatefulKnowledgeSessionImpl(1L, kBase);
 
         // Create a Rete network with ObjectTypeNodes for List, Collection and ArrayList
@@ -447,7 +445,7 @@ public class ReteTest extends DroolsTestCase {
 
         rete.assertObject(h1,
                           pctxFactory.createPropagationContext(0,
-                                                               PropagationContext.INSERTION,
+                                                               PropagationContext.Type.INSERTION,
                                                                null,
                                                                null,
                                                                null),
@@ -462,7 +460,7 @@ public class ReteTest extends DroolsTestCase {
         InternalKnowledgeBase kBase;
 
         TestBuildContext(InternalKnowledgeBase kBase) {
-            super(kBase, null);
+            super(kBase);
             this.kBase = kBase;
         }
     }

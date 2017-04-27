@@ -16,18 +16,19 @@
 
 package org.drools.core.command;
 
+import org.drools.core.command.impl.ExecutableCommand;
+import org.drools.core.command.impl.RegistryContext;
+import org.kie.api.runtime.Context;
+
 import javax.xml.bind.annotation.XmlAccessType;
 import javax.xml.bind.annotation.XmlAccessorType;
 import javax.xml.bind.annotation.XmlElement;
 import javax.xml.bind.annotation.XmlRootElement;
 import javax.xml.bind.annotation.XmlSchemaType;
 
-import org.drools.core.command.impl.GenericCommand;
-import org.kie.internal.command.Context;
-
 @XmlRootElement(name="get-variable-command")
 @XmlAccessorType(XmlAccessType.FIELD)
-public class GetVariableCommand implements GenericCommand<Object> {
+public class GetVariableCommand implements ExecutableCommand<Object> {
    
     @XmlElement
     @XmlSchemaType(name="string")
@@ -56,7 +57,7 @@ public class GetVariableCommand implements GenericCommand<Object> {
         if ( this.contextName == null ) {
             targetCtx = ctx;
         } else {
-            targetCtx = ctx.getContextManager().getContext( this.contextName );
+            targetCtx = ( (RegistryContext) ctx ).getContextManager().getContext( this.contextName );
         }
         
         return targetCtx.get( identifier);        

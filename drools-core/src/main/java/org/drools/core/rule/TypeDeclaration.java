@@ -16,6 +16,13 @@
 
 package org.drools.core.rule;
 
+import java.io.Externalizable;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import java.util.Collections;
+import java.util.List;
+
 import org.drools.core.base.ClassObjectType;
 import org.drools.core.factmodel.ClassDefinition;
 import org.drools.core.factmodel.GeneratedFact;
@@ -24,15 +31,12 @@ import org.drools.core.facttemplates.FactTemplateObjectType;
 import org.drools.core.spi.InternalReadAccessor;
 import org.drools.core.spi.ObjectType;
 import org.drools.core.util.ClassUtils;
+import org.kie.api.definition.type.Expires;
+import org.kie.api.definition.type.Expires.Policy;
+import org.kie.api.definition.type.PropertyReactive;
 import org.kie.api.definition.type.Role;
 import org.kie.api.io.Resource;
 import org.kie.internal.definition.KnowledgeDefinition;
-
-import java.io.Externalizable;
-import java.io.IOException;
-import java.io.ObjectInput;
-import java.io.ObjectOutput;
-import java.util.List;
 
 /**
  * The type declaration class stores all type's metadata
@@ -43,6 +47,8 @@ public class TypeDeclaration
     KnowledgeDefinition,
     Externalizable,
     Comparable<TypeDeclaration> {
+
+    public static final long NEVER_EXPIRES = -1;
 
     public static final int ROLE_BIT                    = 1;
     public static final int TYPESAFE_BIT                = 2;
@@ -107,10 +113,11 @@ public class TypeDeclaration
     private boolean                valid;
     private boolean                propertyReactive;
     private boolean javaBased;
-    private transient List<String> settableProprties;
+    private transient List<String> accessibleProperties;
 
     private transient ObjectType   objectType;
-    private long                   expirationOffset = -1;
+    private long                   expirationOffset = NEVER_EXPIRES;
+    private Expires.Policy         expirationPolicy;
 
     private int                    order;
 
@@ -129,6 +136,15 @@ public class TypeDeclaration
         setTypeClass(typeClass);
         javaBased = true;
         setTypeClassDef( new ClassDefinition( typeClass ) );
+
+        Role role = typeClass.getAnnotation(Role.class);
+        if (role != null) {
+            setRole(role.value());
+        }
+
+        if (typeClass.getAnnotation(PropertyReactive.class) != null) {
+            setPropertyReactive(true);
+        }
     }
 
     public TypeDeclaration( String typeName ) {
@@ -162,6 +178,7 @@ public class TypeDeclaration
         this.timestampExtractor = (InternalReadAccessor) in.readObject();
         this.resource = (Resource) in.readObject();
         this.expirationOffset = in.readLong();
+        this.expirationPolicy = (Expires.Policy) in.readObject();
         this.dynamic = in.readBoolean();
         this.typesafe = in.readBoolean();
         this.propertyReactive = in.readBoolean();
@@ -181,8 +198,9 @@ public class TypeDeclaration
         out.writeObject( typeClassDef );
         out.writeObject( durationExtractor );
         out.writeObject( timestampExtractor );
-        out.writeObject( this.resource );
+        out.writeObject( resource );
         out.writeLong(expirationOffset);
+        out.writeObject( expirationPolicy );
         out.writeBoolean(dynamic);
         out.writeBoolean( typesafe );
         out.writeBoolean(propertyReactive);
@@ -424,6 +442,14 @@ public class TypeDeclaration
         this.expirationOffset = expirationOffset;
     }
 
+    public Policy getExpirationPolicy() {
+        return expirationPolicy;
+    }
+
+    public void setExpirationType( Policy expirationPolicy ) {
+        this.expirationPolicy = expirationPolicy;
+    }
+
     public String getTypeClassName() {
         return typeClassName;
     }
@@ -469,11 +495,11 @@ public class TypeDeclaration
         this.novel = novel;
     }
 
-    public List<String> getSettableProperties() {
-        if ( settableProprties == null ) {
-            settableProprties = ClassUtils.getSettableProperties( getTypeClass() );
+    public List<String> getAccessibleProperties() {
+        if ( accessibleProperties == null ) {
+            accessibleProperties = propertyReactive ? ClassUtils.getAccessibleProperties( getTypeClass() ) : Collections.emptyList();
         }
-        return settableProprties;
+        return accessibleProperties;
     }
 
     public String toString() {

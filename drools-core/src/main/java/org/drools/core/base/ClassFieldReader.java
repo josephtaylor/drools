@@ -16,11 +16,6 @@
 
 package org.drools.core.base;
 
-import org.drools.core.common.InternalWorkingMemory;
-import org.drools.core.spi.InternalReadAccessor;
-import org.drools.core.util.ClassUtils;
-
-import java.beans.Introspector;
 import java.io.Externalizable;
 import java.io.IOException;
 import java.io.ObjectInput;
@@ -28,6 +23,10 @@ import java.io.ObjectOutput;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+
+import org.drools.core.common.InternalWorkingMemory;
+import org.drools.core.spi.InternalReadAccessor;
+import org.drools.core.util.ClassUtils;
 
 /**
  * This provides access to fields, and what their numerical index/object type is.
@@ -45,6 +44,34 @@ public class ClassFieldReader
     private String                         fieldName;
     private transient InternalReadAccessor reader;
 
+    /**
+     * Utility method to take a string and convert it to normal Java variable
+     * name capitalization.  This normally means converting the first
+     * character from upper case to lower case, but in the (unusual) special
+     * case when there is more than one character and both the first and
+     * second characters are upper case, we leave it alone.
+     * <p>
+     * Thus "FooBah" becomes "fooBah" and "X" becomes "x", but "URL" stays
+     * as "URL".
+     *
+     * Taken from
+     *
+     * @param  name The string to be decapitalized.
+     * @return  The decapitalized version of the string.
+     */
+    public static String decapitalizeFieldName(String name) {
+        if (name == null || name.length() == 0) {
+            return name;
+        }
+        if (name.length() > 1 && Character.isUpperCase(name.charAt(1)) &&
+                Character.isUpperCase(name.charAt(0))){
+            return name;
+        }
+        char chars[] = name.toCharArray();
+        chars[0] = Character.toLowerCase(chars[0]);
+        return new String(chars);
+    }
+
     public ClassFieldReader() {
 
     }
@@ -52,7 +79,7 @@ public class ClassFieldReader
     public ClassFieldReader(final String className,
                             final String fieldName) {
         this.className = className;
-        this.fieldName = Introspector.decapitalize(fieldName);
+        this.fieldName = ClassFieldReader.decapitalizeFieldName(fieldName);
     }
 
     public void writeExternal(ObjectOutput out) throws IOException {
@@ -270,4 +297,7 @@ public class ClassFieldReader
         return reader.getBigIntegerValue( object );
     }
 
+    public AccessorKey getAccessorKey() {
+        return new AccessorKey( className, fieldName, AccessorKey.AccessorType.FieldAccessor );
+    }
 }

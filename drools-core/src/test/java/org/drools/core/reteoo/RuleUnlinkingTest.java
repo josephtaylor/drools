@@ -15,6 +15,8 @@
 
 package org.drools.core.reteoo;
 
+import java.util.List;
+
 import org.drools.core.base.ClassObjectType;
 import org.drools.core.common.DefaultFactHandle;
 import org.drools.core.common.EmptyBetaConstraints;
@@ -32,9 +34,6 @@ import org.drools.core.spi.PropagationContext;
 import org.junit.Test;
 import org.kie.api.KieBaseConfiguration;
 import org.kie.internal.KnowledgeBaseFactory;
-import org.kie.internal.builder.conf.RuleEngineOption;
-
-import java.util.List;
 
 import static org.junit.Assert.*;
 
@@ -106,12 +105,11 @@ public class RuleUnlinkingTest {
 
     public void setUp(int type) {
         KieBaseConfiguration kconf = org.kie.internal.KnowledgeBaseFactory.newKnowledgeBaseConfiguration();
-        kconf.setOption( RuleEngineOption.PHREAK );
         kBase = (InternalKnowledgeBase) KnowledgeBaseFactory.newKnowledgeBase();
-        buildContext = new BuildContext( kBase, kBase.getReteooBuilder().getIdGenerator() );
+        buildContext = new BuildContext( kBase );
 
         PropagationContextFactory pctxFactory = kBase.getConfiguration().getComponentFactory().getPropagationContextFactory();
-        context = pctxFactory.createPropagationContext(0, PropagationContext.INSERTION, null, null, null);
+        context = pctxFactory.createPropagationContext(0, PropagationContext.Type.INSERTION, null, null, null);
 
         ObjectTypeNode otn = new ObjectTypeNode( 4, null, new ClassObjectType( String.class ), buildContext );
         liaNode = new LeftInputAdapterNode( 5, otn, buildContext );
@@ -173,7 +171,6 @@ public class RuleUnlinkingTest {
         setUp( JOIN_NODE );
 
         KieBaseConfiguration kconf = org.kie.internal.KnowledgeBaseFactory.newKnowledgeBaseConfiguration();
-        kconf.setOption( RuleEngineOption.PHREAK );
 
         InternalKnowledgeBase kBase = (InternalKnowledgeBase) KnowledgeBaseFactory.newKnowledgeBase(kconf);
         StatefulKnowledgeSessionImpl wm = new StatefulKnowledgeSessionImpl( 1L, kBase );
@@ -195,10 +192,7 @@ public class RuleUnlinkingTest {
     public void testSegmentNodeReferencesToSegments() {
         setUp( JOIN_NODE );
 
-        KieBaseConfiguration kconf = org.kie.internal.KnowledgeBaseFactory.newKnowledgeBaseConfiguration();
-        kconf.setOption( RuleEngineOption.PHREAK );
-
-        InternalKnowledgeBase kBase = (InternalKnowledgeBase) KnowledgeBaseFactory.newKnowledgeBase(kconf);
+        InternalKnowledgeBase kBase = (InternalKnowledgeBase) KnowledgeBaseFactory.newKnowledgeBase();
         StatefulKnowledgeSessionImpl wm = new StatefulKnowledgeSessionImpl( 1L, kBase );
 
         BetaMemory bm = null;
@@ -293,10 +287,7 @@ public class RuleUnlinkingTest {
     public void testRuleSegmentLinking() {
         setUp( JOIN_NODE );
 
-        KieBaseConfiguration kconf = org.kie.internal.KnowledgeBaseFactory.newKnowledgeBaseConfiguration();
-        kconf.setOption( RuleEngineOption.PHREAK );
-
-        InternalKnowledgeBase kBase = (InternalKnowledgeBase) KnowledgeBaseFactory.newKnowledgeBase(kconf);
+        InternalKnowledgeBase kBase = (InternalKnowledgeBase) KnowledgeBaseFactory.newKnowledgeBase();
         StatefulKnowledgeSessionImpl wm = new StatefulKnowledgeSessionImpl( 1L, kBase );
 
         BetaMemory bm = null;

@@ -32,8 +32,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigInteger;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -50,6 +52,7 @@ import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.drools.compiler.kie.builder.impl.KieBuilderImpl.setDefaultsforEmptyKieModule;
+import static org.drools.compiler.kproject.ReleaseIdImpl.fromPropertiesStream;
 
 public class KieRepositoryImpl
         implements
@@ -69,17 +72,29 @@ public class KieRepositoryImpl
 
     private final KieModuleRepo kieModuleRepo;
 
+    public static void setInternalKieScanner(InternalKieScanner scanner) {
+        synchronized (KieScannerHolder.class) {
+            KieScannerHolder.kieScanner = scanner;
+        }
+    }
+
     private static class KieScannerHolder {
         // Use holder class idiom to lazily initialize the kieScanner
-        private static final InternalKieScanner KIE_SCANNER = getInternalKieScanner();
+        private static volatile InternalKieScanner kieScanner = getInternalKieScanner();
 
         private static InternalKieScanner getInternalKieScanner() {
-            try {
-                KieScannerFactoryService scannerFactoryService = ServiceRegistryImpl.getInstance().get( KieScannerFactoryService.class );
-                return (InternalKieScanner)scannerFactoryService.newKieScanner();
-            } catch (Exception e) {
-                // kie-ci is not on the classpath
-                return new DummyKieScanner();
+            synchronized (KieScannerHolder.class) {
+                if ( kieScanner != null ) {
+                    return kieScanner;
+                }
+                try {
+                    KieScannerFactoryService scannerFactoryService = ServiceRegistryImpl.getInstance().get( KieScannerFactoryService.class );
+                    return (InternalKieScanner) scannerFactoryService.newKieScanner();
+                } catch (Exception e) {
+                    log.debug( "Cannot load a KieRepositoryScanner, using the DummyKieScanner" );
+                    // kie-ci is not on the classpath
+                    return new DummyKieScanner();
+                }
             }
         }
     }
@@ -115,7 +130,7 @@ public class KieRepositoryImpl
     }
 
     public KieModule getKieModule(ReleaseId releaseId, PomModel pomModel) {
-        KieModule kieModule = kieModuleRepo.load( KieScannerHolder.KIE_SCANNER, releaseId );
+        KieModule kieModule = kieModuleRepo.load( KieScannerHolder.kieScanner, releaseId );
         if (kieModule == null) {
             log.debug("KieModule Lookup. ReleaseId {} was not in cache, checking classpath",
                       releaseId.toExternalForm());
@@ -132,14 +147,54 @@ public class KieRepositoryImpl
     }
 
     private KieModule checkClasspathForKieModule(ReleaseId releaseId) {
-        // TODO
-        // ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
-        // URL url = classLoader.getResource( ((ReleaseIdImpl)releaseId).getPomPropertiesPath() );
+        ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
+
+        URL kmoduleUrl = contextClassLoader.getResource( KieModuleModelImpl.KMODULE_JAR_PATH );
+        if (kmoduleUrl == null) {
+            return null;
+        }
+
+        String pomPropertiesPath = ReleaseIdImpl.getPomPropertiesPath(releaseId);
+        URL pomPropertiesUrl = contextClassLoader.getResource( pomPropertiesPath );
+        if (pomPropertiesUrl == null) {
+            return null;
+        }
+
+        ReleaseId pomReleaseId = fromPropertiesStream( contextClassLoader.getResourceAsStream(pomPropertiesPath),
+                                                       pomPropertiesUrl.getPath());
+        if (pomReleaseId.equals(releaseId)) {
+            String path = pomPropertiesUrl.getPath();
+            String pathToJar = path.substring( 0, path.indexOf( ".jar!" ) + 4 );
+
+            URL pathToKmodule;
+            try {
+                pathToKmodule = new URL( pomPropertiesUrl.getProtocol(),
+                                         pomPropertiesUrl.getHost(),
+                                         pomPropertiesUrl.getPort(),
+                                         pathToJar + "!/" + KieModuleModelImpl.KMODULE_JAR_PATH );
+                
+                // URLConnection.getContentLength() returns -1 if the content length is not known, unable to locate and read from the kmodule
+                // if URL backed by 'file:' then FileURLConnection.getContentLength() returns 0, as per java.io.File.length() returns 0L if the file does not exist. (the same also for WildFly's VFS FileURLConnection) 
+                if ( pathToKmodule.openConnection().getContentLength() <= 0 ) {
+                    return null;
+                }
+            } catch (MalformedURLException e) {
+                log.error( "Unable to reconstruct path to kmodule for " + releaseId );
+                return null;
+            } catch (IOException e) {
+                log.error( "Unable to read from path to kmodule for " + releaseId );
+                return null;
+            }
+
+            log.info( "Adding KieModule from classpath: " + pathToJar );
+            return ClasspathKieProject.fetchKModule( pathToKmodule );
+        }
+
         return null;
     }
 
     private KieModule loadKieModuleFromMavenRepo(ReleaseId releaseId, PomModel pomModel) {
-        return KieScannerHolder.KIE_SCANNER.loadArtifact( releaseId, pomModel );
+        return KieScannerHolder.kieScanner.loadArtifact( releaseId, pomModel );
     }
 
     private static class DummyKieScanner
@@ -157,18 +212,22 @@ public class KieRepositoryImpl
         public void setKieContainer(KieContainer kieContainer) { }
 
         public KieModule loadArtifact(ReleaseId releaseId) {
+            log.error( "Cannot load artifact " + releaseId + ". You need kie-ci on the classpath to perform this operation" );
             return null;
         }
 
         public KieModule loadArtifact(ReleaseId releaseId, InputStream pomXML) {
+            log.error( "Cannot load artifact " + releaseId + ". You need kie-ci on the classpath to perform this operation" );
             return null;
         }
 
         public KieModule loadArtifact(ReleaseId releaseId, PomModel pomModel) {
+            log.error( "Cannot load artifact " + releaseId + ". You need kie-ci on the classpath to perform this operation" );
             return null;
         }
 
         public String getArtifactVersion(ReleaseId releaseId) {
+            log.error( "Cannot load artifact " + releaseId + ". You need kie-ci on the classpath to perform this operation" );
             return null;
         }
 

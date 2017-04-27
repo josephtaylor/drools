@@ -15,6 +15,7 @@
 
 package org.drools.core.common;
 
+import org.drools.core.WorkingMemoryEntryPoint;
 import org.drools.core.base.ArrayElements;
 import org.drools.core.base.DroolsQuery;
 import org.drools.core.factmodel.traits.TraitFactory;
@@ -37,9 +38,11 @@ import java.io.Externalizable;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 @XmlRootElement(name="disconnected-fact-handle")
-@XmlAccessorType(XmlAccessType.FIELD)
+@XmlAccessorType(XmlAccessType.NONE)
 @XmlSeeAlso({ArrayElements.class})
 public class DisconnectedFactHandle
         implements
@@ -164,6 +167,31 @@ public class DisconnectedFactHandle
         throw new UnsupportedOperationException( "DisonnectedFactHandle does not support this method" );
     }
 
+    @Override
+    public boolean isExpired() {
+        return false;
+    }
+
+    @Override
+    public boolean isPendingRemoveFromStore() {
+        return false;
+    }
+
+    public void forEachRightTuple( Consumer<RightTuple> rightTupleConsumer ) { }
+
+    @Override
+    public void forEachLeftTuple( Consumer<LeftTuple> leftTupleConsumer ) { }
+
+    @Override
+    public RightTuple findFirstRightTuple( Predicate<RightTuple> rightTuplePredicate ) {
+        return null;
+    }
+
+    @Override
+    public LeftTuple findFirstLeftTuple( Predicate<LeftTuple> lefttTuplePredicate ) {
+        return null;
+    }
+
     public int getId() {
         return this.id;
     }
@@ -195,7 +223,7 @@ public class DisconnectedFactHandle
         throw new UnsupportedOperationException( "DisonnectedFactHandle does not support this method" );
     }
 
-    public InternalWorkingMemoryEntryPoint getEntryPoint() {
+    public WorkingMemoryEntryPoint getEntryPoint() {
         throw new UnsupportedOperationException( "DisonnectedFactHandle does not support this method" );
     }
 
@@ -230,7 +258,7 @@ public class DisconnectedFactHandle
         throw new UnsupportedOperationException( "DisonnectedFactHandle does not support this method" );
     }
 
-    public void setEntryPoint(InternalWorkingMemoryEntryPoint ep) {
+    public void setEntryPoint(WorkingMemoryEntryPoint ep ) {
         throw new UnsupportedOperationException( "DisonnectedFactHandle does not support this method" );
     }
 
@@ -239,6 +267,21 @@ public class DisconnectedFactHandle
     }
 
     public void setFirstLeftTuple(LeftTuple leftTuple) {
+        throw new UnsupportedOperationException( "DisonnectedFactHandle does not support this method" );
+    }
+
+    @Override
+    public LinkedTuples getLinkedTuples() {
+        throw new UnsupportedOperationException( "DisonnectedFactHandle does not support this method" );
+    }
+
+    @Override
+    public LinkedTuples detachLinkedTuples() {
+        throw new UnsupportedOperationException( "DisonnectedFactHandle does not support this method" );
+    }
+
+    @Override
+    public LinkedTuples detachLinkedTuplesForPartition(int i) {
         throw new UnsupportedOperationException( "DisonnectedFactHandle does not support this method" );
     }
 
@@ -258,12 +301,8 @@ public class DisconnectedFactHandle
         throw new UnsupportedOperationException( "DisonnectedFactHandle does not support this method" );
     }
 
-    public InternalFactHandle quickClone() {
-        return new DisconnectedFactHandle(id, identityHashCode, objectHashCode, recency, entryPointId, object, traitType != TraitTypeEnum.NON_TRAIT );
-    }
-
     public InternalFactHandle clone() {
-        return clone();
+        throw new UnsupportedOperationException( "DisonnectedFactHandle does not support this method" );
     }
 
     public String toExternalForm() {

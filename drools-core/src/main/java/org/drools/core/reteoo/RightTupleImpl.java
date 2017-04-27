@@ -48,7 +48,7 @@ public class RightTupleImpl extends BaseTuple implements RightTuple {
         this.sink = sink;
 
         // add to end of RightTuples on handle
-        handle.addTupleInPosition( this );
+        handle.addLastRightTuple( this );
     }
 
     public RightTupleSink getTupleSink() {
@@ -263,11 +263,6 @@ public class RightTupleImpl extends BaseTuple implements RightTuple {
     @Override
     public LeftTupleSource getTupleSource() {
         throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void modifyTuple( PropagationContext context, InternalWorkingMemory workingMemory) {
-        getTupleSink().modifyRightTuple( this, context, workingMemory );
     }
 
     @Override

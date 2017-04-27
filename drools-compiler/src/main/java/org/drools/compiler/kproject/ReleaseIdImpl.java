@@ -17,6 +17,7 @@ package org.drools.compiler.kproject;
 
 import java.io.Externalizable;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
 import java.io.StringReader;
@@ -30,6 +31,7 @@ public class ReleaseIdImpl implements ReleaseId, Externalizable {
     private String groupId;
     private String artifactId;
     private String version;
+    private String type;
 
     private String snapshotVersion;
 
@@ -43,12 +45,15 @@ public class ReleaseIdImpl implements ReleaseId, Externalizable {
         this.version = split[2];
     }
 
-    public ReleaseIdImpl(String groupId,
-            String artifactId,
-            String version) {
+    public ReleaseIdImpl(String groupId, String artifactId, String version) {
+        this(groupId, artifactId, version, "jar");
+    }
+
+    public ReleaseIdImpl(String groupId, String artifactId, String version, String type) {
         this.groupId = groupId;
         this.artifactId = artifactId;
         this.version = version;
+        this.type = type;
     }
 
     public String getGroupId() {
@@ -77,7 +82,9 @@ public class ReleaseIdImpl implements ReleaseId, Externalizable {
 
     @Override
     public String toString() {
-        return groupId + ":" + artifactId + ":" + version;
+        return type == null || type.equals( "jar" ) ?
+               groupId + ":" + artifactId + ":" + version :
+               groupId + ":" + artifactId + ":" + type + ":" + version;
     }
 
     public String toExternalForm() {
@@ -85,11 +92,19 @@ public class ReleaseIdImpl implements ReleaseId, Externalizable {
     }
 
     public String getPomXmlPath() {
-        return "META-INF/maven/" + groupId + "/" + artifactId + "/pom.xml";
+        return getPomXmlPath(this);
     }
 
     public String getPomPropertiesPath() {
-        return "META-INF/maven/" + groupId + "/" + artifactId + "/pom.properties";
+        return getPomPropertiesPath(this);
+    }
+
+    public static String getPomXmlPath(ReleaseId releaseId) {
+        return "META-INF/maven/" + releaseId.getGroupId() + "/" + releaseId.getArtifactId() + "/pom.xml";
+    }
+    
+    public static String getPomPropertiesPath(ReleaseId releaseId) {
+        return "META-INF/maven/" + releaseId.getGroupId() + "/" + releaseId.getArtifactId() + "/pom.properties";
     }
 
     public String getCompilationCachePathPrefix() {
@@ -101,49 +116,60 @@ public class ReleaseIdImpl implements ReleaseId, Externalizable {
         return version.endsWith("-SNAPSHOT");
     }
 
-    public static ReleaseId fromPropertiesString(String string) {
+    public static ReleaseId fromPropertiesString(String path) {
         Properties props = new Properties();
-        ReleaseId releaseId = null;
         try {
-            props.load(new StringReader(string));
-            String groupId = props.getProperty("groupId");
-            String artifactId = props.getProperty("artifactId");
-            String version = props.getProperty("version");
-            if (StringUtils.isEmpty(groupId) || StringUtils.isEmpty(artifactId) || StringUtils.isEmpty(version)) {
-                throw new RuntimeException("pom.properties exists but ReleaseId content is malformed\n" + string);
-            }
-            releaseId = new ReleaseIdImpl(groupId, artifactId, version);
+            props.load(new StringReader(path));
+            return getReleaseIdFromProperties(props, path);
         } catch (IOException e) {
-            throw new RuntimeException("pom.properties was malformed\n" + string, e);
+            throw new RuntimeException("pom.properties was malformed\n" + path, e);
         }
+    }
+    
+    public static ReleaseId fromPropertiesStream(InputStream stream, String path) {
+        Properties props = new Properties();
+        try {
+            props.load(stream);
+            return getReleaseIdFromProperties(props, path);
+        } catch (IOException e) {
+            throw new RuntimeException("pom.properties was malformed\n" + path, e);
+        }
+    }
 
-        return releaseId;
+    private static ReleaseId getReleaseIdFromProperties(Properties props, String path) {
+        String groupId = props.getProperty("groupId");
+        String artifactId = props.getProperty("artifactId");
+        String version = props.getProperty("version");
+        if (StringUtils.isEmpty(groupId) || StringUtils.isEmpty(artifactId) || StringUtils.isEmpty(version)) {
+            throw new RuntimeException("pom.properties exists but ReleaseId content is malformed\n" + path);
+        }
+        return new ReleaseIdImpl(groupId, artifactId, version);
     }
 
     @Override
     public boolean equals(Object o) {
-        if (this == o)
+        if (this == o) {
             return true;
-        if (o == null || getClass() != o.getClass())
+        }
+        if (o == null || getClass() != o.getClass()) {
             return false;
+        }
 
         ReleaseIdImpl that = (ReleaseIdImpl) o;
+        return equalsIgnoreNull(artifactId, that.artifactId) && equalsIgnoreNull(groupId, that.groupId) &&
+               equalsIgnoreNull(version, that.version) && equalsIgnoreNull(type, that.type);
+    }
 
-        if (artifactId != null ? !artifactId.equals(that.artifactId) : that.artifactId != null)
-            return false;
-        if (groupId != null ? !groupId.equals(that.groupId) : that.groupId != null)
-            return false;
-        if (version != null ? !version.equals(that.version) : that.version != null)
-            return false;
-
-        return true;
+    private boolean equalsIgnoreNull(Object o1, Object o2) {
+        return o1 != null ? o1.equals(o2) : o2 == null;
     }
 
     @Override
     public int hashCode() {
         int result = groupId != null ? groupId.hashCode() : 0;
-        result = 31 * result + (artifactId != null ? artifactId.hashCode() : 0);
+        result = 29 * result + (artifactId != null ? artifactId.hashCode() : 0);
         result = 31 * result + (version != null ? version.hashCode() : 0);
+        result = 37 * result + (type != null ? type.hashCode() : 0);
         return result;
     }
 
@@ -160,6 +186,7 @@ public class ReleaseIdImpl implements ReleaseId, Externalizable {
         out.writeObject(groupId);
         out.writeObject(artifactId);
         out.writeObject(version);
+        out.writeObject(type);
     }
 
     @Override
@@ -167,5 +194,6 @@ public class ReleaseIdImpl implements ReleaseId, Externalizable {
         groupId = (String) in.readObject();
         artifactId = (String) in.readObject();
         version = (String) in.readObject();
+        type = (String) in.readObject();
     }
 }

@@ -31,13 +31,10 @@ import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.nio.channels.FileChannel;
 import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Enumeration;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -153,65 +150,11 @@ public class IoUtils {
         return tempFile;
     }
 
-    public static Map<String, byte[]> indexZipFile(java.io.File jarFile) {
-        Map<String, List<String>> folders = new HashMap<String, List<String>>();
-        Map<String, byte[]> files = new HashMap<String, byte[]>();
-        ZipFile zipFile = null;
-
-        try {
-            zipFile = new ZipFile( jarFile );
-            Enumeration< ? extends ZipEntry> entries = zipFile.entries();
-            while ( entries.hasMoreElements() ) {
-                ZipEntry entry = entries.nextElement();
-                if (entry.getName().endsWith(".dex")) {
-                    continue; //avoid out of memory error, it is useless anyway
-                }
-                String entryName = entry.getName();
-                if (entry.isDirectory()) {
-                    if (entryName.endsWith( "/" )) {
-                        entryName = entryName.substring( 0, entryName.length()-1 );
-                    }
-                } else {
-                    byte[] bytes = readBytesFromInputStream( zipFile.getInputStream( entry ) );
-                    files.put( entryName, bytes );
-                }
-                int lastSlashPos = entryName.lastIndexOf( '/' );
-                String folderName = lastSlashPos < 0 ? "" : entryName.substring( 0, lastSlashPos );
-                List<String> folder = folders.get(folderName);
-                if (folder == null) {
-                    folder = new ArrayList<String>();
-                    folders.put( folderName, folder );
-                }
-                folder.add(lastSlashPos < 0 ? entryName : entryName.substring( lastSlashPos+1 ));
-            }
-        } catch ( IOException e ) {
-            throw new RuntimeException( "Unable to get all ZipFile entries: " + jarFile, e );
-        } finally {
-            if ( zipFile != null ) {
-                try {
-                    zipFile.close();
-                } catch ( IOException e ) {
-                    throw new RuntimeException( "Unable to get all ZipFile entries: " + jarFile, e );
-                }
-            }
-        }
-
-        for (Map.Entry<String, List<String>> folder : folders.entrySet()) {
-            StringBuilder sb = new StringBuilder();
-            for (String child : folder.getValue()) {
-                sb.append( child ).append( "\n" );
-            }
-            files.put( folder.getKey(), sb.toString().getBytes( StandardCharsets.UTF_8 ) );
-        }
-
-        return files;
-    }
-
     public static List<String> recursiveListFile(File folder) {
-        return recursiveListFile(folder, "", Predicate.PassAll.INSTANCE);
+        return recursiveListFile( folder, "", f -> true );
     }
 
-    public static List<String> recursiveListFile(File folder, String prefix, Predicate<? super File> filter) {
+    public static List<String> recursiveListFile(File folder, String prefix, Predicate<File> filter) {
         List<String> files = new ArrayList<String>();
         for (File child : safeListFiles(folder)) {
             filesInFolder(files, child, prefix, filter);
@@ -219,14 +162,14 @@ public class IoUtils {
         return files;
     }
 
-    private static void filesInFolder(List<String> files, File file, String relativePath, Predicate<? super File> filter) {
+    private static void filesInFolder(List<String> files, File file, String relativePath, Predicate<File> filter) {
         if (file.isDirectory()) {
             relativePath += file.getName() + "/";
             for (File child : safeListFiles(file)) {
                 filesInFolder(files, child, relativePath, filter);
             }
         } else {
-            if (filter.apply(file)) {
+            if (filter.test(file)) {
                 files.add(relativePath + file.getName());
             }
         }
@@ -250,14 +193,28 @@ public class IoUtils {
     }
 
     public static byte[] readBytesFromInputStream(InputStream input) throws IOException {
-        byte[] buffer = createBytesBuffer( input );
-        ByteArrayOutputStream output = new ByteArrayOutputStream(buffer.length);
+        return readBytesFromInputStream( input, true );
+    }
 
-        int n = 0;
-        while (-1 != (n = input.read(buffer))) {
-            output.write(buffer, 0, n);
+    public static byte[] readBytesFromInputStream(InputStream input, boolean closeInput) throws IOException {
+        try {
+            byte[] buffer = createBytesBuffer( input );
+            ByteArrayOutputStream output = new ByteArrayOutputStream( buffer.length );
+
+            int n = 0;
+            while ( -1 != ( n = input.read( buffer ) ) ) {
+                output.write( buffer, 0, n );
+            }
+            return output.toByteArray();
+        } finally {
+            try {
+                if ( closeInput ) {
+                    input.close();
+                }
+            } catch (Exception e) {
+                // ignore
+            }
         }
-        return output.toByteArray();
     }
 
     private static byte[] createBytesBuffer( InputStream input ) throws IOException {
@@ -273,7 +230,7 @@ public class IoUtils {
         byte[] bytes = null;
         try {
             zipFile = new ZipFile( file );
-            bytes = IoUtils.readBytesFromInputStream(  zipFile.getInputStream( entry ) );
+            bytes = IoUtils.readBytesFromInputStream(  zipFile.getInputStream( entry ), true );
         } finally {
             if ( zipFile != null ) {
                 zipFile.close();

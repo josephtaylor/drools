@@ -26,7 +26,7 @@ import org.kie.api.runtime.rule.FactHandle;
 import org.kie.internal.KnowledgeBase;
 import org.kie.internal.builder.KnowledgeBuilder;
 import org.kie.internal.builder.KnowledgeBuilderFactory;
-import org.kie.internal.builder.conf.RuleEngineOption;
+import org.kie.internal.builder.conf.PropertySpecificOption;
 import org.kie.internal.io.ResourceFactory;
 import org.kie.internal.runtime.StatefulKnowledgeSession;
 import org.kie.internal.utils.KieHelper;
@@ -576,12 +576,7 @@ public class NamedConsequencesTest extends CommonTestMethodBase {
 
         List<String> results = executeTestWithDRL(str);
 
-        if ( CommonTestMethodBase.phreak == RuleEngineOption.PHREAK) {
-            assertEquals( 2, results.size() );
-        } else {
-            assertEquals( 1, results.size() );
-        }
-
+        assertEquals( 2, results.size() );
         assertTrue( results.contains( "STILTON" ) );
     }
 
@@ -812,7 +807,8 @@ public class NamedConsequencesTest extends CommonTestMethodBase {
                 "    modify($p1) { setAge(35); }\n" +
                 "end\n";
 
-        KieSession ksession = new KieHelper().addContent(drl, ResourceType.DRL)
+        // This test has uncovered a BLOCKER which is reported in the PropertyReactiveBlockersTest
+        KieSession ksession = new KieHelper(PropertySpecificOption.ALLOWED).addContent(drl, ResourceType.DRL)
                 .build()
                 .newKieSession();
 

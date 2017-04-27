@@ -22,63 +22,74 @@ import org.drools.core.common.InternalWorkingMemory;
 import org.drools.core.reteoo.LeftTuple;
 import org.drools.core.reteoo.LeftTupleSinkNode;
 import org.drools.core.reteoo.ReactiveFromNode;
+import org.drools.core.reteoo.ReactiveFromNodeLeftTuple;
 import org.drools.core.reteoo.RightTupleImpl;
 import org.drools.core.rule.ContextEntry;
 import org.drools.core.spi.PropagationContext;
 import org.drools.core.spi.Tuple;
 
-import java.util.List;
+import java.util.Collection;
 
 import static org.drools.core.phreak.PhreakFromNode.*;
 
 public class ReactiveObjectUtil {
 
-    public static void notifyModification(ReactiveObject reactiveObject) {
-        notifyModification( reactiveObject, reactiveObject.getLeftTuples() );
+    public enum ModificationType {
+        NONE, MODIFY, ADD, REMOVE
     }
 
-    public static void notifyModification(Object object, List<Tuple> leftTuples) {
-        if (leftTuples == null) {
-            return;
-        }
+    public static void notifyModification(ReactiveObject reactiveObject) {
+        notifyModification( reactiveObject, reactiveObject.getLeftTuples(), ModificationType.MODIFY);
+    }
+
+    public static void notifyModification( Object object, Collection<Tuple> leftTuples, ModificationType type ) {
         for (Tuple leftTuple : leftTuples) {
+            if (!( (ReactiveFromNodeLeftTuple) leftTuple ).updateModificationState( object, type )) {
+                continue;
+            }
             PropagationContext propagationContext = leftTuple.getPropagationContext();
             ReactiveFromNode node = (ReactiveFromNode)leftTuple.getTupleSink();
 
             LeftTupleSinkNode sink = node.getSinkPropagator().getFirstLeftTupleSink();
             InternalWorkingMemory wm = getInternalWorkingMemory(propagationContext);
 
-            wm.addPropagation(new ReactivePropagation(object, leftTuple, propagationContext, node, sink));
+            wm.addPropagation(new ReactivePropagation(object, (ReactiveFromNodeLeftTuple)leftTuple, propagationContext, node, sink, type));
         }
     }
 
     private static InternalWorkingMemory getInternalWorkingMemory(PropagationContext propagationContext) {
-        InternalFactHandle fh = (InternalFactHandle) propagationContext.getFactHandle();
+        InternalFactHandle fh = propagationContext.getFactHandle();
         return fh.getEntryPoint().getInternalWorkingMemory();
     }
 
     static class ReactivePropagation extends PropagationEntry.AbstractPropagationEntry {
 
         private final Object object;
-        private final Tuple leftTuple;
+        private final ReactiveFromNodeLeftTuple leftTuple;
         private final PropagationContext propagationContext;
         private final ReactiveFromNode node;
         private final LeftTupleSinkNode sink;
+        private final ModificationType type;
 
-        ReactivePropagation( Object object, Tuple leftTuple, PropagationContext propagationContext, ReactiveFromNode node, LeftTupleSinkNode sink ) {
+        ReactivePropagation( Object object, ReactiveFromNodeLeftTuple leftTuple, PropagationContext propagationContext, ReactiveFromNode node, LeftTupleSinkNode sink, ModificationType type ) {
             this.object = object;
             this.leftTuple = leftTuple;
             this.propagationContext = propagationContext;
             this.node = node;
             this.sink = sink;
+            this.type = type;
         }
 
         @Override
         public void execute( InternalWorkingMemory wm ) {
+            if ( leftTuple.resetModificationState( object ) == ModificationType.NONE ) {
+                return;
+            }
+
             ReactiveFromNode.ReactiveFromMemory mem = wm.getNodeMemory(node);
             InternalFactHandle factHandle = node.createFactHandle( leftTuple, propagationContext, wm, object );
 
-            if ( isAllowed( factHandle, node.getAlphaConstraints(), wm, mem ) ) {
+            if ( type != ModificationType.REMOVE && isAllowed( factHandle, node.getAlphaConstraints(), wm, mem ) ) {
                 ContextEntry[] context = mem.getBetaMemory().getContext();
                 BetaConstraints betaConstraints = node.getBetaConstraints();
                 betaConstraints.updateFromTuple( context,

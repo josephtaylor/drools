@@ -49,10 +49,10 @@ import org.drools.core.reteoo.QueryElementNode.QueryElementNodeMemory;
 import org.drools.core.reteoo.RightInputAdapterNode;
 import org.drools.core.reteoo.RightInputAdapterNode.RiaNodeMemory;
 import org.drools.core.reteoo.SegmentMemory;
+import org.drools.core.reteoo.TerminalNode;
 import org.drools.core.reteoo.TimerNode;
 import org.drools.core.reteoo.TimerNode.TimerNodeMemory;
 import org.drools.core.rule.constraint.QueryNameConstraint;
-import org.kie.api.definition.rule.Rule;
 
 public class SegmentUtilities {
 
@@ -208,13 +208,13 @@ public class SegmentUtilities {
     }
 
     private static void processFromNode(MemoryFactory tupleSource, InternalWorkingMemory wm, SegmentMemory smem) {
-        ((FromNode.FromMemory) smem.createNodeMemory(tupleSource, wm)).getBetaMemory().setSegmentMemory(smem);
+        smem.createNodeMemory(tupleSource, wm).setSegmentMemory(smem);
     }
 
     private static void processReactiveFromNode(MemoryFactory tupleSource, InternalWorkingMemory wm, SegmentMemory smem, long nodePosMask) {
-        BetaMemory bm = ((FromNode.FromMemory) smem.createNodeMemory(tupleSource, wm)).getBetaMemory();
-        bm.setSegmentMemory(smem);
-        bm.setNodePosMaskBit(nodePosMask);
+        FromNode.FromMemory mem = ((FromNode.FromMemory) smem.createNodeMemory(tupleSource, wm));
+        mem.setSegmentMemory(smem);
+        mem.setNodePosMaskBit(nodePosMask);
     }
 
     private static boolean processBranchNode(ConditionalBranchNode tupleSource, InternalWorkingMemory wm, SegmentMemory smem) {
@@ -309,28 +309,21 @@ public class SegmentUtilities {
 
     public static SegmentMemory createChildSegment(InternalWorkingMemory wm, LeftTupleNode node) {
         Memory memory = wm.getNodeMemory((MemoryFactory) node);
-        if (!NodeTypeEnums.isEndNode(node)) {
-            if (memory.getSegmentMemory() == null) {
-                SegmentUtilities.createSegmentMemory((LeftTupleSource) node, wm);
-            }
-        } else {
-            // RTNS and RiaNode's have their own segment, if they are the child of a split.
-            if (memory.getSegmentMemory() == null) {
+        if (memory.getSegmentMemory() == null) {
+            if (NodeTypeEnums.isEndNode(node)) {
+                // RTNS and RiaNode's have their own segment, if they are the child of a split.
                 createChildSegmentForTerminalNode( node, memory );
+            } else {
+                createSegmentMemory((LeftTupleSource) node, wm);
             }
         }
         return memory.getSegmentMemory();
     }
 
     public static SegmentMemory createChildSegmentForTerminalNode( LeftTupleNode node, Memory memory ) {
-        SegmentMemory childSmem = new SegmentMemory( node); // rtns or riatns don't need a queue
+        SegmentMemory childSmem = new SegmentMemory( node ); // rtns or riatns don't need a queue
+        PathMemory pmem = NodeTypeEnums.isTerminalNode( node ) ? (PathMemory) memory : ((RiaNodeMemory) memory).getRiaPathMemory();
 
-        PathMemory pmem;
-        if ( NodeTypeEnums.isTerminalNode( node )) {
-            pmem = (PathMemory) memory;
-        } else {
-            pmem = ((RiaNodeMemory) memory).getRiaPathMemory();
-        }
         childSmem.setPos( pmem.getSegmentMemories().length - 1 );
         pmem.setSegmentMemory(childSmem.getPos(), childSmem);
         pmem.setSegmentMemory(childSmem);
@@ -453,17 +446,9 @@ public class SegmentUtilities {
      *
      * The result should discount any removingRule. That means it gives you the result as
      * if the rule had already been removed from the network.
-     * @param node
-     * @param removingRule
-     * @return
      */
-    public static boolean isRootNode(LeftTupleNode node, Rule removingRule) {
-        if (node.getType() == NodeTypeEnums.LeftInputAdapterNode) {
-            return true;
-        }
-
-        LeftTupleNode parent = node.getLeftTupleSource();
-        return isTipNode( parent, removingRule );
+    public static boolean isRootNode(LeftTupleNode node, TerminalNode removingTN) {
+        return node.getType() == NodeTypeEnums.LeftInputAdapterNode || isNonTerminalTipNode( node.getLeftTupleSource(), removingTN );
     }
 
     /**
@@ -474,18 +459,15 @@ public class SegmentUtilities {
      *
      * The result should discount any removingRule. That means it gives you the result as
      * if the rule had already been removed from the network.
-     * @param node
-     * @param removingRule
-     * @return
      */
-    public static boolean isTipNode(LeftTupleNode node, Rule removingRule) {
-        if (NodeTypeEnums.isEndNode(node)) {
-            return true;
-        }
+    public static boolean isTipNode( LeftTupleNode node, TerminalNode removingTN ) {
+        return NodeTypeEnums.isEndNode(node) || isNonTerminalTipNode( node, removingTN );
+    }
+
+    private static boolean isNonTerminalTipNode( LeftTupleNode node, TerminalNode removingTN ) {
         LeftTupleSinkPropagator sinkPropagator = node.getSinkPropagator();
 
-
-        if (removingRule == null) {
+        if (removingTN == null) {
             return sinkPropagator.size() > 1;
         }
 
@@ -495,9 +477,8 @@ public class SegmentUtilities {
 
         // we know the sink size is creater than 1 and that there is a removingRule that needs to be ignored.
         int count = 0;
-        for ( LeftTupleSinkNode sink = sinkPropagator.getFirstLeftTupleSink(); sink != null; sink = sink.getNextLeftTupleSinkNode() )  {
-            int associatedRuleSize = sink.getAssociatedRuleSize();
-            if ( !(associatedRuleSize == 1 && sink.isAssociatedWith( removingRule )) ) {
+        for ( LeftTupleSinkNode sink = sinkPropagator.getFirstLeftTupleSink(); sink != null; sink = sink.getNextLeftTupleSinkNode() ) {
+            if ( sinkNotExclusivelyAssociatedWithTerminal( removingTN, sink ) ) {
                 count++;
                 if ( count > 1 ) {
                     // There is more than one sink that is not for the removing rule
@@ -509,7 +490,26 @@ public class SegmentUtilities {
         return false;
     }
 
-    public static ObjectTypeNode getQueryOtn(LeftTupleSource lts) {
+    private static boolean sinkNotExclusivelyAssociatedWithTerminal( TerminalNode removingTN, LeftTupleSinkNode sink ) {
+        return sink.getAssociatedRuleSize() > 1 || !sink.isAssociatedWith( removingTN.getRule() ) ||
+               !removingTN.isTerminalNodeOf( sink ) || hasTerminalNodesDifferentThan( sink, removingTN );
+    }
+
+    private static boolean hasTerminalNodesDifferentThan(LeftTupleSinkNode node, TerminalNode tn) {
+        LeftTupleSinkPropagator sinkPropagator = node.getSinkPropagator();
+        for ( LeftTupleSinkNode sink = sinkPropagator.getFirstLeftTupleSink(); sink != null; sink = sink.getNextLeftTupleSinkNode() )  {
+            if (sink instanceof TerminalNode) {
+                if (tn.getId() != sink.getId()) {
+                    return true;
+                }
+            } else if (hasTerminalNodesDifferentThan(sink, tn)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static ObjectTypeNode getQueryOtn(LeftTupleSource lts) {
         while (!(lts instanceof LeftInputAdapterNode)) {
             lts = lts.getLeftTupleSource();
         }
@@ -523,7 +523,7 @@ public class SegmentUtilities {
         return ((EntryPointNode) os).getQueryNode();
     }
 
-    public static LeftInputAdapterNode getQueryLiaNode(String queryName, ObjectTypeNode queryOtn) {
+    private static LeftInputAdapterNode getQueryLiaNode(String queryName, ObjectTypeNode queryOtn) {
         for (ObjectSink sink : queryOtn.getObjectSinkPropagator().getSinks()) {
             AlphaNode alphaNode = (AlphaNode) sink;
             QueryNameConstraint nameConstraint = (QueryNameConstraint) alphaNode.getConstraint();

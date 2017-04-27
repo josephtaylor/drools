@@ -15,6 +15,12 @@
 
 package org.drools.core.impl;
 
+import java.io.IOException;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import org.drools.core.RuleBaseConfiguration;
 import org.drools.core.SessionConfiguration;
 import org.drools.core.base.ClassFieldAccessorCache;
@@ -23,22 +29,24 @@ import org.drools.core.common.RuleBasePartitionId;
 import org.drools.core.definitions.InternalKnowledgePackage;
 import org.drools.core.definitions.rule.impl.RuleImpl;
 import org.drools.core.factmodel.traits.TraitRegistry;
-import org.drools.core.reteoo.*;
+import org.drools.core.reteoo.EntryPointNode;
+import org.drools.core.reteoo.LeftTupleNode;
+import org.drools.core.reteoo.LeftTupleSource;
+import org.drools.core.reteoo.Rete;
+import org.drools.core.reteoo.ReteooBuilder;
+import org.drools.core.reteoo.SegmentMemory;
 import org.drools.core.rule.InvalidPatternException;
 import org.drools.core.rule.TypeDeclaration;
+import org.drools.core.ruleunit.RuleUnitRegistry;
 import org.drools.core.spi.FactHandleFactory;
 import org.drools.core.spi.PropagationContext;
 import org.drools.core.util.TripleStore;
+import org.kie.api.builder.ReleaseId;
 import org.kie.api.definition.process.Process;
 import org.kie.api.io.Resource;
 import org.kie.api.runtime.Environment;
 import org.kie.api.runtime.rule.FactHandle;
 import org.kie.internal.KnowledgeBase;
-
-import java.io.IOException;
-import java.util.Collection;
-import java.util.Map;
-import java.util.Set;
 
 public interface InternalKnowledgeBase extends KnowledgeBase {
 
@@ -68,6 +76,7 @@ public interface InternalKnowledgeBase extends KnowledgeBase {
     Map<String, Class<?>> getGlobals();
 
     int getNodeCount();
+    int getMemoryCount(String unitName);
 
     void executeQueuedActions();
 
@@ -119,6 +128,7 @@ public interface InternalKnowledgeBase extends KnowledgeBase {
 
     void addRule( InternalKnowledgePackage pkg, RuleImpl rule ) throws InvalidPatternException;
     void removeRule( InternalKnowledgePackage pkg, RuleImpl rule ) throws InvalidPatternException;
+    void removeRules( InternalKnowledgePackage pkg, List<RuleImpl> rules ) throws InvalidPatternException;
 
     void addProcess( Process process );
     void removeProcess( final String id );
@@ -129,5 +139,17 @@ public interface InternalKnowledgeBase extends KnowledgeBase {
     boolean removeObjectsGeneratedFromResource(Resource resource);
 
     TypeDeclaration getTypeDeclaration( Class<?> clazz );
+    TypeDeclaration getExactTypeDeclaration( Class<?> clazz );
+    TypeDeclaration getOrCreateExactTypeDeclaration( Class<?> clazz );
     Collection<TypeDeclaration> getTypeDeclarations();
+    void registerTypeDeclaration( TypeDeclaration newDecl, InternalKnowledgePackage newPkg );
+
+	ReleaseId getResolvedReleaseId();
+	void setResolvedReleaseId(ReleaseId currentReleaseId);
+	String getContainerId();
+	void setContainerId(String containerId);
+	void initMBeans();
+
+    RuleUnitRegistry getRuleUnitRegistry();
+    boolean hasUnits();
 }

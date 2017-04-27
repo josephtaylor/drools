@@ -16,25 +16,28 @@
 
 package org.drools.core.command.runtime.rule;
 
+import org.drools.core.command.impl.ExecutableCommand;
+import org.drools.core.command.impl.RegistryContext;
+import org.drools.core.common.DisconnectedFactHandle;
+import org.kie.api.runtime.KieSession;
+import org.kie.api.runtime.rule.EntryPoint;
+import org.kie.api.runtime.rule.FactHandle;
+import org.kie.api.runtime.Context;
+
 import javax.xml.bind.annotation.XmlAccessType;
 import javax.xml.bind.annotation.XmlAccessorType;
-
-import org.drools.core.command.impl.GenericCommand;
-import org.drools.core.command.impl.KnowledgeCommandContext;
-import org.drools.core.common.DisconnectedFactHandle;
-import org.kie.internal.command.Context;
-import org.kie.api.runtime.KieSession;
-import org.kie.api.runtime.rule.FactHandle;
+import java.util.Arrays;
 
 @XmlAccessorType(XmlAccessType.NONE)
 public class UpdateInEntryPointCommand
-        implements GenericCommand<Void> {
+        implements ExecutableCommand<Void> {
 
     private static final long serialVersionUID = 3255044102543531497L;
 
     private DisconnectedFactHandle handle;
     private Object object;
     private String entryPoint;
+    private String[] modifiedProperties;
 
     public UpdateInEntryPointCommand() {
     }
@@ -46,13 +49,25 @@ public class UpdateInEntryPointCommand
         this.object = object;
         this.entryPoint = entryPoint;
     }
+
+    public UpdateInEntryPointCommand(FactHandle handle,
+                                     Object object,
+                                     String entryPoint,
+                                     String[] modifiedProperties) {
+        this(handle, object, entryPoint);
+        this.modifiedProperties = modifiedProperties;
+    }
+
     public Void execute(Context context) {
-        KieSession ksession = ((KnowledgeCommandContext) context).getKieSession();
-        
-        ksession.getEntryPoint( entryPoint ).update( handle, object );
+        KieSession ksession = ((RegistryContext) context).lookup( KieSession.class );
+        EntryPoint ep = ksession.getEntryPoint( entryPoint );
+        if (modifiedProperties != null) {
+            ep.update( handle, object, modifiedProperties );
+        } else {
+            ep.update( handle, object );
+        }
         return null;
     }
-    
 
     public String getEntryPoint() {
         return entryPoint;
@@ -66,7 +81,8 @@ public class UpdateInEntryPointCommand
     }
 
     public String toString() {
-        return "session.getEntryPoint( " + entryPoint + " ).update( " + handle + ", " + object + " );";
+        return "session.getEntryPoint( " + entryPoint + " ).update( " + handle + ", " + object +
+               (modifiedProperties != null ? ", " + Arrays.toString(modifiedProperties) : "") + " );";
     }
 
     public Object getObject() { 

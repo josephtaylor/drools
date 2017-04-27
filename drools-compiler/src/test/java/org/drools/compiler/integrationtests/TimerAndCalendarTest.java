@@ -15,38 +15,6 @@
 
 package org.drools.compiler.integrationtests;
 
-import org.drools.compiler.Alarm;
-import org.drools.compiler.Cheese;
-import org.drools.compiler.CommonTestMethodBase;
-import org.drools.compiler.FactA;
-import org.drools.compiler.Foo;
-import org.drools.compiler.Pet;
-import org.drools.compiler.StockTick;
-import org.drools.core.base.UndefinedCalendarExcption;
-import org.drools.core.time.SessionPseudoClock;
-import org.drools.core.time.impl.PseudoClockScheduler;
-import org.drools.core.util.DateUtils;
-import org.junit.Ignore;
-import org.junit.Test;
-import org.kie.api.event.rule.AgendaEventListener;
-import org.kie.api.event.rule.DefaultAgendaEventListener;
-import org.kie.api.io.ResourceType;
-import org.kie.api.runtime.KieSession;
-import org.kie.api.runtime.KieSessionConfiguration;
-import org.kie.api.runtime.conf.ClockTypeOption;
-import org.kie.api.runtime.conf.TimedRuleExectionOption;
-import org.kie.api.runtime.rule.EntryPoint;
-import org.kie.api.runtime.rule.FactHandle;
-import org.kie.api.time.Calendar;
-import org.kie.api.time.SessionClock;
-import org.kie.internal.KnowledgeBase;
-import org.kie.internal.KnowledgeBaseFactory;
-import org.kie.internal.builder.KnowledgeBuilder;
-import org.kie.internal.builder.KnowledgeBuilderFactory;
-import org.kie.internal.builder.conf.RuleEngineOption;
-import org.kie.internal.io.ResourceFactory;
-import org.kie.internal.runtime.StatefulKnowledgeSession;
-
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -58,6 +26,37 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import org.drools.compiler.Alarm;
+import org.drools.compiler.Cheese;
+import org.drools.compiler.CommonTestMethodBase;
+import org.drools.compiler.FactA;
+import org.drools.compiler.Foo;
+import org.drools.compiler.Pet;
+import org.drools.compiler.StockTick;
+import org.drools.core.base.UndefinedCalendarExcption;
+import org.drools.core.time.impl.PseudoClockScheduler;
+import org.drools.core.util.DateUtils;
+import org.junit.Ignore;
+import org.junit.Test;
+import org.kie.api.event.rule.AgendaEventListener;
+import org.kie.api.event.rule.DefaultAgendaEventListener;
+import org.kie.api.io.ResourceType;
+import org.kie.api.runtime.KieSession;
+import org.kie.api.runtime.KieSessionConfiguration;
+import org.kie.api.runtime.conf.ClockTypeOption;
+import org.kie.api.runtime.conf.TimedRuleExecutionOption;
+import org.kie.api.runtime.rule.EntryPoint;
+import org.kie.api.runtime.rule.FactHandle;
+import org.kie.api.time.Calendar;
+import org.kie.api.time.SessionClock;
+import org.kie.api.time.SessionPseudoClock;
+import org.kie.internal.KnowledgeBase;
+import org.kie.internal.KnowledgeBaseFactory;
+import org.kie.internal.builder.KnowledgeBuilder;
+import org.kie.internal.builder.KnowledgeBuilderFactory;
+import org.kie.internal.io.ResourceFactory;
+import org.kie.internal.runtime.StatefulKnowledgeSession;
 
 import static java.util.Arrays.asList;
 
@@ -301,7 +300,7 @@ public class TimerAndCalendarTest extends CommonTestMethodBase {
 
         KieSessionConfiguration conf = KnowledgeBaseFactory.newKnowledgeSessionConfiguration();
         conf.setOption( ClockTypeOption.get( "pseudo" ) );
-        conf.setOption( TimedRuleExectionOption.YES );
+        conf.setOption( TimedRuleExecutionOption.YES );
 
         KnowledgeBase kbase = loadKnowledgeBaseFromString(str );
         KieSession ksession = createKnowledgeSession(kbase, conf);
@@ -1424,10 +1423,6 @@ public class TimerAndCalendarTest extends CommonTestMethodBase {
     
     @Test(timeout=10000) @Ignore
     public void testHaltAfterSomeTimeThenRestart() throws Exception {
-        if ( CommonTestMethodBase.phreak == RuleEngineOption.RETEOO ) {
-            return; // fails randomly for Rete
-        }
-
         String drl = "package org.kie.test;" +
                 "global java.util.List list; \n" +
                 "\n" +
@@ -1494,16 +1489,12 @@ public class TimerAndCalendarTest extends CommonTestMethodBase {
 
     @Test (timeout=10000)
     public void testHaltAfterSomeTimeThenRestartButNoLongerHolding() throws Exception {
-        if ( CommonTestMethodBase.phreak == RuleEngineOption.RETEOO ) {
-            return; // fails randomly for Rete
-        }
-
         String drl = "package org.kie.test;" +
                 "global java.util.List list; \n" +
                 "\n" +
                 "\n" +
                 "rule FireAtWill\n" +
-                "   timer(int:0 100)\n" +
+                "   timer(int:0 200)\n" +
                 "when  \n" +
                 "  eval(true)" +
                 "  String( this == \"trigger\" )" +
@@ -1530,20 +1521,20 @@ public class TimerAndCalendarTest extends CommonTestMethodBase {
         new Thread( new Runnable(){
             public void run(){ ksession.fireUntilHalt(); }
         } ).start();
-        Thread.sleep( 150 );
+        Thread.sleep( 350 );
         assertEquals( 2, list.size() ); // delay 0, repeat after 100
         assertEquals( asList( 0, 0 ), list );
 
         ksession.insert( "halt" );
 
         Thread.sleep( 200 );
-        ksession.retract( handle );
+        ksession.delete( handle );
         assertEquals( 2, list.size() ); // halted, no more rule firing
 
         new Thread( new Runnable(){
             public void run(){ ksession.fireUntilHalt(); }
         } ).start();
-        Thread.sleep( 500 );
+        Thread.sleep( 200 );
 
         assertEquals( 2, list.size() );
         assertEquals( asList( 0, 0 ), list );
@@ -1680,7 +1671,7 @@ public class TimerAndCalendarTest extends CommonTestMethodBase {
 
         KieSessionConfiguration conf = KnowledgeBaseFactory.newKnowledgeSessionConfiguration();
         conf.setOption(ClockTypeOption.get("pseudo"));
-        conf.setOption(TimedRuleExectionOption.YES);
+        conf.setOption(TimedRuleExecutionOption.YES);
 
         KnowledgeBase kbase = loadKnowledgeBaseFromString(str);
         KieSession ksession = createKnowledgeSession(kbase, conf);
@@ -1797,7 +1788,7 @@ public class TimerAndCalendarTest extends CommonTestMethodBase {
 
         KieSessionConfiguration conf = KnowledgeBaseFactory.newKnowledgeSessionConfiguration();
         conf.setOption(ClockTypeOption.get("pseudo"));
-        conf.setOption(TimedRuleExectionOption.YES);
+        conf.setOption(TimedRuleExecutionOption.YES);
 
         KnowledgeBase kbase = loadKnowledgeBaseFromString(str);
         KieSession ksession = createKnowledgeSession(kbase, conf);
@@ -1834,7 +1825,7 @@ public class TimerAndCalendarTest extends CommonTestMethodBase {
                 "end\n";
 
         KieSessionConfiguration conf = KnowledgeBaseFactory.newKnowledgeSessionConfiguration();
-        conf.setOption(TimedRuleExectionOption.YES);
+        conf.setOption(TimedRuleExecutionOption.YES);
         KnowledgeBase kbase = loadKnowledgeBaseFromString(str);
         KieSession ksession = createKnowledgeSession(kbase, conf);
 

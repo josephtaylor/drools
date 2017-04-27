@@ -15,7 +15,11 @@
 
 package org.drools.compiler.integrationtests;
 
-import org.drools.core.time.SessionPseudoClock;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+import org.kie.api.time.SessionPseudoClock;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -29,10 +33,6 @@ import org.kie.api.runtime.conf.ClockTypeOption;
 import org.kie.api.runtime.rule.EntryPoint;
 import org.kie.api.runtime.rule.QueryResults;
 import org.kie.internal.io.ResourceFactory;
-
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -104,13 +104,13 @@ public class QueryCepFireUntilHaltTest {
         executorService.shutdown();
     }
 
-    @Test
+    @Test(timeout = 10000L)
     public void noResultTest() {
         QueryResults results = ksession.getQueryResults("EventsFromStream");
         assertEquals(0, results.size());
     }
     
-    @Test
+    @Test(timeout = 10000L)
     public void withResultTest() {
         secondEntryPoint.insert(new TestEvent("minusOne"));
         clock.advanceTime(5, TimeUnit.SECONDS);
@@ -125,10 +125,10 @@ public class QueryCepFireUntilHaltTest {
         secondEntryPoint.insert(new TestEvent("three"));
         QueryResults results = ksession.getQueryResults("ZeroToNineteenSeconds");
         
-        assertEquals(3, results.size());
+        assertEquals(1, results.size());
     }
     
-    @Test
+    @Test(timeout = 10000L)
     public void withNoResultTest() {
         secondEntryPoint.insert(new TestEvent("minusOne"));
         clock.advanceTime(5, TimeUnit.SECONDS);

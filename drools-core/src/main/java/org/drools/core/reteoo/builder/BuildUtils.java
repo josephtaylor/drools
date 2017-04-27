@@ -16,6 +16,12 @@
 
 package org.drools.core.reteoo.builder;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import org.drools.core.common.BaseNode;
 import org.drools.core.common.BetaConstraints;
 import org.drools.core.common.DefaultBetaConstraints;
@@ -44,12 +50,6 @@ import org.drools.core.spi.ObjectType;
 import org.drools.core.time.Interval;
 import org.drools.core.time.TemporalDependencyMatrix;
 import org.drools.core.time.TimeUtils;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 /**
  * Utility functions for reteoo build
@@ -90,8 +90,7 @@ public class BuildUtils {
      * @return the actual attached node that may be the one given as parameter
      *         or eventually one that was already in the cache if sharing is enabled
      */
-    public BaseNode attachNode(final BuildContext context,
-                               final BaseNode candidate) {
+    public <T extends BaseNode> T attachNode(BuildContext context, T candidate) {
         BaseNode node = null;
         RuleBasePartitionId partition = null;
         if ( candidate.getType() == NodeTypeEnums.EntryPointNode ) {
@@ -106,8 +105,7 @@ public class BuildUtils {
                 ObjectTypeNode otn = map.get( ((ObjectTypeNode) candidate).getObjectType() );
                 if ( otn != null ) {
                     // adjusting expiration offset
-                    otn.setExpirationOffset( Math.max( otn.getExpirationOffset(),
-                                                       ((ObjectTypeNode) candidate).getExpirationOffset() ) );
+                    otn.mergeExpirationOffset( (ObjectTypeNode) candidate );
                     node = otn;
                 }
             }
@@ -125,7 +123,6 @@ public class BuildUtils {
         }
 
         if ( node == null ) {
-            // SteamMode in Phreak does not allow sharing
             // only attach() if it is a new node
             node = candidate;
 
@@ -139,7 +136,7 @@ public class BuildUtils {
                 partition = context.getPartitionId();
             }
             // set node whit the actual partition label
-            node.setPartitionId( partition );
+            node.setPartitionId( context, partition );
             node.attach(context);
             // adds the node to the context list to track all added nodes
             context.getNodes().add( node );
@@ -147,10 +144,15 @@ public class BuildUtils {
             // shared node found
             mergeNodes(node, candidate);
             // undo previous id assignment
-            context.releaseId( candidate.getId() );
+            context.releaseId( candidate );
+            if ( partition == null && context.getPartitionId() == null ) {
+                partition = node.getPartitionId();
+                // if no label in current context, create one
+                context.setPartitionId( partition );
+            }
         }
-        node.addAssociation( context.getRule(), context.peekRuleComponent() );
-        return node;
+        node.addAssociation( context, context.getRule() );
+        return (T)node;
     }
 
     private void mergeNodes(BaseNode node, BaseNode duplicate) {

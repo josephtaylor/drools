@@ -54,7 +54,7 @@ public class SegmentMemory extends LinkedList<SegmentMemory>
     private          SegmentMemory      previous;
     private          SegmentMemory      next;
 
-    private transient PathMemory firstDataDrivenPathMemory;
+    private transient List<PathMemory>  dataDrivenPathMemories;
 
     public SegmentMemory(LeftTupleNode rootNode) {
         this.rootNode = rootNode;
@@ -129,7 +129,7 @@ public class SegmentMemory extends LinkedList<SegmentMemory>
         return sbuilder.toString();
     }
 
-    public void linkNode(long mask,
+    public boolean linkNode(long mask,
                          InternalWorkingMemory wm) {
         linkedNodeMask |= mask;
         //dirtyNodeMask = dirtyNodeMask | mask;
@@ -137,61 +137,68 @@ public class SegmentMemory extends LinkedList<SegmentMemory>
             log.trace("LinkNode notify=true nmask={} smask={} spos={} rules={}", mask, linkedNodeMask, pos, getRuleNames());
         }
 
-        notifyRuleLinkSegment( wm );
+        return notifyRuleLinkSegment( wm );
     }
 
-    public void linkNodeWithoutRuleNotify(long mask) {
+    public boolean linkNodeWithoutRuleNotify(long mask) {
         linkedNodeMask |= mask;
         //dirtyNodeMask = dirtyNodeMask | mask;
         if (isLogTraceEnabled) {
             log.trace("LinkNode notify=false nmask={} smask={} spos={} rules={}", mask, linkedNodeMask, pos, getRuleNames());
         }
 
-        linkSegmentWithoutRuleNotify();
+        return linkSegmentWithoutRuleNotify();
     }
 
-    public void linkSegmentWithoutRuleNotify(InternalWorkingMemory wm, long mask) {
+    public boolean linkSegmentWithoutRuleNotify(InternalWorkingMemory wm, long mask) {
         //dirtyNodeMask = dirtyNodeMask | mask;
         dirtyNodeMask |= mask;
-        linkSegmentWithoutRuleNotify();
+        return linkSegmentWithoutRuleNotify();
     }
 
-    private void linkSegmentWithoutRuleNotify() {
+    private boolean linkSegmentWithoutRuleNotify() {
+        boolean dataDrivePmemLinked = false;
         if (isSegmentLinked()) {
             for (int i = 0, length = pathMemories.size(); i < length; i++) {
                 // do not use foreach, don't want Iterator object creation
-                pathMemories.get(i).linkNodeWithoutRuleNotify(segmentPosMaskBit);
+                PathMemory pmem = pathMemories.get(i);
+                pmem.linkNodeWithoutRuleNotify(segmentPosMaskBit);
+                dataDrivePmemLinked |= ( pmem.isDataDriven() && pmem.isRuleLinked() );
             }
         }
+        return dataDrivePmemLinked;
     }
 
-    public void notifyRuleLinkSegment(InternalWorkingMemory wm, long mask) {
+    public boolean notifyRuleLinkSegment(InternalWorkingMemory wm, long mask) {
         //dirtyNodeMask = dirtyNodeMask | mask;
         dirtyNodeMask |= mask;
-        notifyRuleLinkSegment(wm);
+        return notifyRuleLinkSegment(wm);
     }
 
-    public void notifyRuleLinkSegment(InternalWorkingMemory wm) {
+    public boolean notifyRuleLinkSegment(InternalWorkingMemory wm) {
+        boolean dataDrivePmemLinked = false;
         if (isSegmentLinked()) {
             for (int i = 0, length = pathMemories.size(); i < length; i++) {
                 // do not use foreach, don't want Iterator object creation
-                notifyRuleLinkSegment(wm, pathMemories.get(i));
+                PathMemory pmem = pathMemories.get(i);
+                notifyRuleLinkSegment(wm, pmem);
+                dataDrivePmemLinked |= ( pmem.isDataDriven() && pmem.isRuleLinked() );
             }
         }
+        return dataDrivePmemLinked;
     }
 
     public void notifyRuleLinkSegment(InternalWorkingMemory wm, PathMemory pmem) {
         pmem.linkSegment(segmentPosMaskBit, wm);
     }
 
-    public void unlinkNode(long mask,
-                           InternalWorkingMemory wm) {
+    public boolean unlinkNode(long mask,
+                              InternalWorkingMemory wm) {
+        boolean dataDrivePmemLinked = false;
         boolean linked = isSegmentLinked();
         // some node unlinking does not unlink the segment, such as nodes after a Branch CE
         linkedNodeMask ^= mask;
         dirtyNodeMask |= mask;
-        //dirtyNodeMask = dirtyNodeMask | mask;
-
 
         if (isLogTraceEnabled) {
             log.trace("UnlinkNode notify=true nmask={} smask={} spos={} rules={}", mask, linkedNodeMask, pos, getRuleNames());
@@ -200,8 +207,10 @@ public class SegmentMemory extends LinkedList<SegmentMemory>
         if (linked && !isSegmentLinked()) {
             for (int i = 0, length = pathMemories.size(); i < length; i++) {
                 // do not use foreach, don't want Iterator object creation
-                pathMemories.get(i).unlinkedSegment(segmentPosMaskBit,
-                                                    wm);
+                PathMemory pmem = pathMemories.get(i);
+                // the data driven pmem has to be flushed only if the pmem was formerly linked
+                dataDrivePmemLinked |= ( pmem.isDataDriven() && pmem.isRuleLinked() );
+                pmem.unlinkedSegment(segmentPosMaskBit, wm);
             }
         } else {
             // if not unlinked, then we still need to notify if the rule is linked
@@ -212,6 +221,7 @@ public class SegmentMemory extends LinkedList<SegmentMemory>
                 }
             }
         }
+        return dataDrivePmemLinked;
     }
 
     public void unlinkSegment(InternalWorkingMemory wm) {
@@ -248,33 +258,40 @@ public class SegmentMemory extends LinkedList<SegmentMemory>
 
     public void addPathMemory(PathMemory pathMemory) {
         pathMemories.add(pathMemory);
-        if (firstDataDrivenPathMemory == null && pathMemory.isDataDriven()) {
-            firstDataDrivenPathMemory = pathMemory;
+        if (pathMemory.isDataDriven()) {
+            if (dataDrivenPathMemories == null) {
+                dataDrivenPathMemories = new ArrayList<PathMemory>();
+            }
+            dataDrivenPathMemories.add(pathMemory);
         }
     }
 
     public void mergePathMemories(SegmentMemory segmentMemory) {
-        pathMemories.addAll(segmentMemory.getPathMemories());
-        if (firstDataDrivenPathMemory == null) {
-            firstDataDrivenPathMemory = segmentMemory.getFirstDataDrivenPathMemory();
+        for (PathMemory pmem : segmentMemory.getPathMemories()) {
+            addPathMemory( pmem );
         }
     }
 
     public void removePathMemory(PathMemory pathMemory) {
         pathMemories.remove( pathMemory );
-        if (firstDataDrivenPathMemory != null && firstDataDrivenPathMemory.equals( pathMemory )) {
-            firstDataDrivenPathMemory = null;
-            for (PathMemory pmem : pathMemories) {
-                if (pmem.isDataDriven()) {
-                    firstDataDrivenPathMemory = pmem;
-                    break;
-                }
+        if (pathMemory.isDataDriven()) {
+            dataDrivenPathMemories.remove( pathMemory );
+            if (dataDrivenPathMemories.isEmpty()) {
+                dataDrivenPathMemories = null;
             }
         }
     }
 
     public PathMemory getFirstDataDrivenPathMemory() {
-        return firstDataDrivenPathMemory;
+        return dataDrivenPathMemories == null ? null : dataDrivenPathMemories.get(0);
+    }
+
+    public boolean hasDataDrivenPathMemories() {
+        return dataDrivenPathMemories != null;
+    }
+
+    public List<PathMemory> getDataDrivenPathMemories() {
+        return dataDrivenPathMemories;
     }
 
     public long getSegmentPosMaskBit() {
@@ -476,7 +493,7 @@ public class SegmentMemory extends LinkedList<SegmentMemory>
 
         @Override
         public void populateMemory(InternalWorkingMemory wm, Memory liaMemory) {
-            ((LeftInputAdapterNode.LiaNodeMemory)liaMemory).setNodePosMaskBit( nodePosMaskBit );
+            ((SegmentNodeMemory)liaMemory).setNodePosMaskBit( nodePosMaskBit );
         }
     }
 
@@ -490,7 +507,7 @@ public class SegmentMemory extends LinkedList<SegmentMemory>
 
         @Override
         public void populateMemory(InternalWorkingMemory wm, Memory memory) {
-            ((ReactiveFromNode.ReactiveFromMemory)memory).getBetaMemory().setNodePosMaskBit( nodePosMaskBit );
+            ((ReactiveFromNode.ReactiveFromMemory)memory).setNodePosMaskBit( nodePosMaskBit );
         }
     }
 

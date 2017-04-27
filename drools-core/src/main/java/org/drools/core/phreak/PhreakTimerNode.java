@@ -15,6 +15,7 @@
 
 package org.drools.core.phreak;
 
+import org.drools.core.common.InternalAgenda;
 import org.drools.core.common.InternalWorkingMemory;
 import org.drools.core.common.NetworkNode;
 import org.drools.core.common.TupleSets;
@@ -38,6 +39,7 @@ import org.drools.core.reteoo.RuleTerminalNode;
 import org.drools.core.reteoo.SegmentMemory;
 import org.drools.core.reteoo.TimerNode;
 import org.drools.core.reteoo.TimerNode.TimerNodeMemory;
+import org.drools.core.spi.PropagationContext;
 import org.drools.core.spi.Tuple;
 import org.drools.core.time.Job;
 import org.drools.core.time.JobContext;
@@ -51,13 +53,14 @@ import org.drools.core.util.index.TupleList;
 import org.kie.api.definition.rule.Rule;
 import org.kie.api.runtime.Calendars;
 import org.kie.api.runtime.conf.TimedRuleExecutionFilter;
-import org.kie.api.runtime.rule.PropagationContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Date;
 import java.util.List;
+
+import static org.drools.core.phreak.RuleNetworkEvaluator.normalizeStagedTuples;
 
 public class PhreakTimerNode {
     private static final Logger log = LoggerFactory.getLogger( PhreakTimerNode.class );
@@ -67,21 +70,21 @@ public class PhreakTimerNode {
                        PathMemory pmem,
                        SegmentMemory smem,
                        LeftTupleSink sink,
-                       InternalWorkingMemory wm,
+                       InternalAgenda agenda,
                        TupleSets<LeftTuple> srcLeftTuples,
                        TupleSets<LeftTuple> trgLeftTuples,
                        TupleSets<LeftTuple> stagedLeftTuples) {
 
         if ( srcLeftTuples.getDeleteFirst() != null ) {
-            doLeftDeletes( tm, pmem, sink, wm, srcLeftTuples, trgLeftTuples, stagedLeftTuples );
+            doLeftDeletes( tm, pmem, sink, agenda, srcLeftTuples, trgLeftTuples, stagedLeftTuples );
         }
 
         if ( srcLeftTuples.getUpdateFirst() != null ) {
-            doLeftUpdates( timerNode, tm, pmem, smem, sink, wm, srcLeftTuples, trgLeftTuples, stagedLeftTuples );
+            doLeftUpdates( timerNode, tm, pmem, smem, sink, agenda, srcLeftTuples, trgLeftTuples, stagedLeftTuples );
         }
 
         if ( srcLeftTuples.getInsertFirst() != null ) {
-            doLeftInserts( timerNode, tm, pmem, smem, sink, wm, srcLeftTuples, trgLeftTuples );
+            doLeftInserts( timerNode, tm, pmem, smem, sink, agenda, srcLeftTuples, trgLeftTuples );
         }
 
         doPropagateChildLeftTuples( tm, sink, trgLeftTuples, stagedLeftTuples );
@@ -94,19 +97,19 @@ public class PhreakTimerNode {
                               PathMemory pmem,
                               SegmentMemory smem,
                               LeftTupleSink sink,
-                              InternalWorkingMemory wm,
+                              InternalAgenda agenda,
                               TupleSets<LeftTuple> srcLeftTuples,
                               TupleSets<LeftTuple> trgLeftTuples) {
         Timer timer = timerNode.getTimer();
-        TimerService timerService = wm.getTimerService();
+        TimerService timerService = agenda.getWorkingMemory().getTimerService();
         long timestamp = timerService.getCurrentTime();
         String[] calendarNames = timerNode.getCalendarNames();
-        Calendars calendars = wm.getCalendars();
+        Calendars calendars = agenda.getWorkingMemory().getCalendars();
 
         for ( LeftTuple leftTuple = srcLeftTuples.getInsertFirst(); leftTuple != null; ) {
             LeftTuple next = leftTuple.getStagedNext();
 
-            scheduleLeftTuple( timerNode, tm, pmem, smem, sink, wm, timer, timerService, timestamp, calendarNames, calendars, leftTuple, trgLeftTuples, null );
+            scheduleLeftTuple( timerNode, tm, pmem, smem, sink, agenda, timer, timerService, timestamp, calendarNames, calendars, leftTuple, trgLeftTuples, null );
 
             leftTuple.clearStaged();
             leftTuple = next;
@@ -118,17 +121,17 @@ public class PhreakTimerNode {
                               PathMemory pmem,
                               SegmentMemory smem,
                               LeftTupleSink sink,
-                              InternalWorkingMemory wm,
+                              InternalAgenda agenda,
                               TupleSets<LeftTuple> srcLeftTuples,
                               TupleSets<LeftTuple> trgLeftTuples,
                               TupleSets<LeftTuple> stagedLeftTuples) {
         Timer timer = timerNode.getTimer();
 
         // Variables may have changed for ExpressionIntervalTimer, so it must be rescheduled
-        TimerService timerService = wm.getTimerService();
+        TimerService timerService = agenda.getWorkingMemory().getTimerService();
         long timestamp = timerService.getCurrentTime();
         String[] calendarNames = timerNode.getCalendarNames();
-        Calendars calendars = wm.getCalendars();
+        Calendars calendars = agenda.getWorkingMemory().getCalendars();
 
         for ( LeftTuple leftTuple = srcLeftTuples.getUpdateFirst(); leftTuple != null; ) {
             LeftTuple next = leftTuple.getStagedNext();
@@ -138,7 +141,7 @@ public class PhreakTimerNode {
                 // jobHandle can be null, if the time fired straight away, and never ended up scheduling a job
                 timerService.removeJob(jobHandle);
             }
-            scheduleLeftTuple( timerNode, tm, pmem, smem, sink, wm, timer, timerService, timestamp, calendarNames, calendars, leftTuple, trgLeftTuples, stagedLeftTuples );
+            scheduleLeftTuple( timerNode, tm, pmem, smem, sink, agenda, timer, timerService, timestamp, calendarNames, calendars, leftTuple, trgLeftTuples, stagedLeftTuples );
 
             leftTuple.clearStaged();
             leftTuple = next;
@@ -148,11 +151,11 @@ public class PhreakTimerNode {
     public void doLeftDeletes(TimerNodeMemory tm,
                               PathMemory pmem,
                               LeftTupleSink sink,
-                              InternalWorkingMemory wm,
+                              InternalAgenda agenda,
                               TupleSets<LeftTuple> srcLeftTuples,
                               TupleSets<LeftTuple> trgLeftTuples,
                               TupleSets<LeftTuple> stagedLeftTuples) {
-        TimerService timerService = wm.getTimerService();
+        TimerService timerService = agenda.getWorkingMemory().getTimerService();
 
         TupleList leftTuples = tm.getInsertOrUpdateLeftTuples();
         TupleList deletes = tm.getDeleteLeftTuples();
@@ -177,16 +180,16 @@ public class PhreakTimerNode {
                 timerService.removeJob( jobHandle );
             }
 
-            org.drools.core.spi.PropagationContext pctx = leftTuple.getPropagationContext();
+            PropagationContext pctx = leftTuple.getPropagationContext();
             pctx = RuleTerminalNode.findMostRecentPropagationContext( leftTuple, pctx );
 
             if ( leftTuple.getMemory() != null ) {
                 leftTuples.remove( leftTuple ); // it gets removed either way.
-                if ( pctx.getType() == PropagationContext.EXPIRATION ) {
+                if ( pctx.getFactHandle().isExpired() ) {
                     // a expire clashes with insert or update, allow it to propagate once, will handle the expire the second time around
                     doPropagateChildLeftTuple( sink, trgLeftTuples, stagedLeftTuples, leftTuple );
                     tm.getDeleteLeftTuples().add( leftTuple );
-                    pmem.doLinkRule( wm ); // make sure it's dirty, so it'll evaluate again
+                    pmem.doLinkRule( agenda ); // make sure it's dirty, so it'll evaluate again
                     if ( log.isTraceEnabled() ) {
                         log.trace( "Timer Postponed Delete {}", leftTuple );
                     }
@@ -215,7 +218,7 @@ public class PhreakTimerNode {
                                    final PathMemory pmem,
                                    final SegmentMemory smem,
                                    final LeftTupleSink sink,
-                                   final InternalWorkingMemory wm,
+                                   final InternalAgenda agenda,
                                    final Timer timer,
                                    final TimerService timerService,
                                    final long timestamp,
@@ -224,6 +227,7 @@ public class PhreakTimerNode {
                                    final LeftTuple leftTuple,
                                    final TupleSets<LeftTuple> trgLeftTuples,
                                    final TupleSets<LeftTuple> stagedLeftTuples) {
+        InternalWorkingMemory wm = agenda.getWorkingMemory();
         if( leftTuple.getPropagationContext().getReaderContext() == null ) {
             final Trigger trigger = createTrigger( timerNode, wm, timer, timestamp, calendarNames, calendars, leftTuple );
 
@@ -235,7 +239,7 @@ public class PhreakTimerNode {
                 @Override
                 public void schedule( Trigger t ) {
                     scheduleTimer( timerNode, tm, smem, sink, wm, timerService, timestamp, leftTuple, trgLeftTuples, stagedLeftTuples, t );
-                    evaluate( pmem, wm, sink, tm, trgLeftTuples );
+                    evaluate( pmem, agenda, sink, tm, trgLeftTuples );
                 }
                 @Override
                 public Trigger getTrigger() {
@@ -350,15 +354,7 @@ public class PhreakTimerNode {
             // This childLeftTuple has been created in this doNode loop, just skip it
             childLeftTuple.setContextObject( null );
         } else {
-            switch ( childLeftTuple.getStagedType() ) {
-                // handle clash with already staged entries
-                case LeftTuple.INSERT :
-                    stagedLeftTuples.removeInsert( childLeftTuple );
-                    break;
-                case LeftTuple.UPDATE :
-                    stagedLeftTuples.removeUpdate( childLeftTuple );
-                    break;
-            }
+            normalizeStagedTuples( stagedLeftTuples, childLeftTuple );
             trgLeftTuples.addUpdate( childLeftTuple );
             if ( log.isTraceEnabled() ) {
                 log.trace( "Timer Update {}", childLeftTuple );
@@ -430,23 +426,24 @@ public class PhreakTimerNode {
                     // if the corresponding rule has been removed avoid to link and notify this pmem
                     continue;
                 }
-                pmem.doLinkRule( wm );
+                InternalAgenda agenda = pmem.getActualAgenda( wm );
+                pmem.doLinkRule( agenda );
 
                 if (needEvaluation && filter.accept(new Rule[]{pmem.getRule()})) {
-                    evaluateAndFireRule( pmem, wm );
+                    evaluateAndFireRule( pmem, agenda );
                 }
             }
         }
 
-        private void evaluateAndFireRule(PathMemory pmem, InternalWorkingMemory wm) {
+        private void evaluateAndFireRule(PathMemory pmem, InternalAgenda agenda) {
             RuleExecutor ruleExecutor = pmem.getRuleAgendaItem().getRuleExecutor();
-            ruleExecutor.reEvaluateNetwork( wm );
-            ruleExecutor.fire(wm);
+            ruleExecutor.reEvaluateNetwork( agenda );
+            ruleExecutor.fire( agenda );
         }
     }
 
     private static LinkedList<StackEntry> evaluate(PathMemory pmem,
-                                                   InternalWorkingMemory wm,
+                                                   InternalAgenda agenda,
                                                    LeftTupleSink sink,
                                                    TimerNodeMemory tm,
                                                    TupleSets<LeftTuple> trgLeftTuples) {
@@ -473,7 +470,7 @@ public class PhreakTimerNode {
 
         rne.outerEval(pmem, sink, bit, tm,
                       smems, smemIndex, trgLeftTuples,
-                      wm, new LinkedList<StackEntry>(), true,
+                      agenda, new LinkedList<StackEntry>(), true,
                       pmem.getRuleAgendaItem().getRuleExecutor());
         return outerStack;
     }

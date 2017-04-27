@@ -16,22 +16,24 @@
 
 package org.drools.core.command.runtime.rule;
 
+import org.drools.core.command.impl.ExecutableCommand;
+import org.drools.core.command.impl.RegistryContext;
+import org.drools.core.common.DisconnectedFactHandle;
+import org.kie.api.runtime.KieSession;
+import org.kie.api.runtime.rule.EntryPoint;
+import org.kie.api.runtime.rule.FactHandle;
+import org.kie.api.runtime.Context;
+
 import javax.xml.bind.annotation.XmlAccessType;
 import javax.xml.bind.annotation.XmlAccessorType;
 import javax.xml.bind.annotation.XmlElement;
 import javax.xml.bind.annotation.XmlRootElement;
 import javax.xml.bind.annotation.XmlSchemaType;
-
-import org.drools.core.command.impl.GenericCommand;
-import org.drools.core.command.impl.KnowledgeCommandContext;
-import org.drools.core.common.DisconnectedFactHandle;
-import org.kie.internal.command.Context;
-import org.kie.api.runtime.KieSession;
-import org.kie.api.runtime.rule.FactHandle;
+import java.util.Arrays;
 
 @XmlRootElement(name="update-command")
 @XmlAccessorType(XmlAccessType.NONE)
-public class UpdateCommand implements GenericCommand<Void> {
+public class UpdateCommand implements ExecutableCommand<Void> {
 
     private static final long serialVersionUID = 3255044102543531497L;
 
@@ -44,6 +46,9 @@ public class UpdateCommand implements GenericCommand<Void> {
     @XmlSchemaType(name="string")
     private String entryPoint = "DEFAULT";
 
+    @XmlElement
+    private String[] modifiedProperties;
+
     public UpdateCommand() {
     }
 
@@ -51,6 +56,13 @@ public class UpdateCommand implements GenericCommand<Void> {
                          Object object) {
         this.handle = DisconnectedFactHandle.newFrom( handle );
         this.object = object;
+    }
+
+    public UpdateCommand(FactHandle handle,
+                         Object object,
+                         String[] modifiedProperties) {
+        this( handle, object );
+        this.modifiedProperties = modifiedProperties;
     }
 
     public String getEntryPoint() {
@@ -82,13 +94,18 @@ public class UpdateCommand implements GenericCommand<Void> {
     }
 
     public Void execute(Context context) {
-        KieSession ksession = ((KnowledgeCommandContext) context).getKieSession();
-
-        ksession.getEntryPoint( handle.getEntryPointId() ).update( handle, object );
+        KieSession ksession = ((RegistryContext) context).lookup( KieSession.class );
+        EntryPoint ep = ksession.getEntryPoint( handle.getEntryPointId() );
+        if (modifiedProperties != null) {
+            ep.update( handle, object, modifiedProperties );
+        } else {
+            ep.update( handle, object );
+        }
         return null;
     }
 
     public String toString() {
-        return "session.update( " + handle + ", " + object + " );";
+        return "session.update( " + handle + ", " + object +
+               (modifiedProperties != null ? ", " + Arrays.toString( modifiedProperties ) : "") + " );";
     }
 }

@@ -15,6 +15,22 @@
 
 package org.drools.compiler.integrationtests.incrementalcompilation;
 
+import java.io.StringReader;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.drools.compiler.CommonTestMethodBase;
 import org.drools.compiler.FactA;
 import org.drools.compiler.Message;
@@ -24,6 +40,7 @@ import org.drools.core.ClassObjectFilter;
 import org.drools.core.ClockType;
 import org.drools.core.command.runtime.rule.FireAllRulesCommand;
 import org.drools.core.definitions.rule.impl.RuleImpl;
+import org.drools.core.event.DefaultAgendaEventListener;
 import org.drools.core.impl.InternalKnowledgeBase;
 import org.drools.core.impl.KnowledgeBaseImpl;
 import org.drools.core.reteoo.EntryPointNode;
@@ -39,6 +56,7 @@ import org.kie.api.Service;
 import org.kie.api.builder.KieBuilder;
 import org.kie.api.builder.KieFileSystem;
 import org.kie.api.builder.KieModule;
+import org.kie.api.builder.Message.Level;
 import org.kie.api.builder.ReleaseId;
 import org.kie.api.builder.Results;
 import org.kie.api.builder.model.KieBaseModel;
@@ -50,32 +68,23 @@ import org.kie.api.conf.EventProcessingOption;
 import org.kie.api.definition.KiePackage;
 import org.kie.api.definition.rule.Rule;
 import org.kie.api.definition.type.FactType;
+import org.kie.api.event.rule.AfterMatchFiredEvent;
 import org.kie.api.io.ResourceType;
 import org.kie.api.logger.KieRuntimeLogger;
 import org.kie.api.runtime.Globals;
 import org.kie.api.runtime.KieContainer;
 import org.kie.api.runtime.KieSession;
+import org.kie.api.runtime.KieSessionConfiguration;
 import org.kie.api.runtime.StatelessKieSession;
 import org.kie.api.runtime.conf.ClockTypeOption;
+import org.kie.api.runtime.conf.TimedRuleExecutionOption;
+import org.kie.api.runtime.conf.TimerJobFactoryOption;
 import org.kie.api.runtime.rule.FactHandle;
+import org.kie.api.time.SessionPseudoClock;
 import org.kie.internal.builder.IncrementalResults;
 import org.kie.internal.builder.InternalKieBuilder;
+import org.kie.internal.builder.conf.PropertySpecificOption;
 import org.kie.internal.command.CommandFactory;
-
-import java.io.StringReader;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CompletionService;
-import java.util.concurrent.ExecutorCompletionService;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static java.util.Arrays.asList;
 import static org.drools.core.util.DroolsTestUtil.rulestoMap;
@@ -124,11 +133,11 @@ public class IncrementalCompilationTest extends CommonTestMethodBase {
         createAndDeployAndTest( kc, "7", header, drl3, "R3" );
     }
 
-    private void createAndDeployAndTest( KieContainer kc,
-                                         String version,
-                                         String header,
-                                         String drls,
-                                         String... ruleNames ) {
+    public static void createAndDeployAndTest( KieContainer kc,
+                                               String version,
+                                               String header,
+                                               String drls,
+                                               String... ruleNames ) {
         if ( ruleNames == null ) {
             ruleNames = new String[ 0 ];
         }
@@ -2697,5 +2706,1421 @@ public class IncrementalCompilationTest extends CommonTestMethodBase {
         ksession.insert( "start" );
         int fired = ksession.fireAllRules();
 
+    }
+
+    @Test
+    public void testIncrementalCompilationRemovingParentRule() throws Exception {
+        // DROOLS-1031
+        String drl1 = "package org.drools.compiler\n" +
+                      "rule R1 when\n" +
+                      "   $s : String()\n" +
+                      "then\n" +
+                      "end\n";
+
+        String drl2 = "package org.drools.compiler\n" +
+                      "rule R2 extends R1 when\n" +
+                      "   $i : Integer()\n" +
+                      "then\n" +
+                      "end\n";
+
+        KieServices ks = KieServices.Factory.get();
+
+        KieFileSystem kfs = ks.newKieFileSystem()
+                              .write( "src/main/resources/r1.drl", drl1 )
+                              .write( "src/main/resources/r2.drl", drl2 );
+
+        KieBuilder kieBuilder = ks.newKieBuilder( kfs ).buildAll();
+        KieContainer kieContainer = ks.newKieContainer( ks.getRepository().getDefaultReleaseId() );
+
+        KieSession ksession = kieContainer.newKieSession();
+        ksession.insert( "test" );
+        ksession.insert( 1 );
+        assertEquals( 2, ksession.fireAllRules() );
+
+        kfs.delete( "src/main/resources/r1.drl" );
+        IncrementalResults results = ( (InternalKieBuilder) kieBuilder ).createFileSet( "src/main/resources/r1.drl", "src/main/resources/r2.drl" ).build();
+
+        assertEquals( 1, results.getAddedMessages().size() );
+        assertEquals( 0, results.getRemovedMessages().size() );
+
+        kieContainer.updateToVersion( ks.getRepository().getDefaultReleaseId() );
+        ksession = kieContainer.newKieSession();
+        ksession.insert( "test" );
+        ksession.insert( 1 );
+        assertEquals( 2, ksession.fireAllRules() );
+    }
+
+    @Test
+    public void testIncrementalCompilationChangeingParentRule() throws Exception {
+        // DROOLS-1031
+        String drl1_1 =
+                      "rule R1 when\n" +
+                      "   $s : String( this == \"s1\" )\n" +
+                      "then\n" +
+                      "end\n";
+
+        String drl1_2 =
+                      "rule R1 when\n" +
+                      "   $s : String( this == \"s2\" )\n" +
+                      "then\n" +
+                      "end\n";
+
+        String drl2 =
+                      "rule R2 extends R1 when\n" +
+                      "   $i : Integer()\n" +
+                      "then\n" +
+                      "end\n";
+
+        KieServices ks = KieServices.Factory.get();
+
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-extends", "1.1.1" );
+        KieModule km = createAndDeployJar( ks, releaseId1, drl1_1 + drl2 );
+
+        KieContainer kc = ks.newKieContainer(km.getReleaseId());
+        KieSession ksession = kc.newKieSession();
+
+        ksession.insert( 1 );
+        ksession.insert( "s2" );
+        assertEquals( 0, ksession.fireAllRules() );
+
+        ReleaseId releaseId2 = ks.newReleaseId("org.kie", "test-extends", "1.1.2");
+        km = createAndDeployJar( ks, releaseId2, drl1_2 + drl2 );
+
+        kc.updateToVersion( releaseId2 );
+        assertEquals( 2, ksession.fireAllRules() );
+    }
+
+    @Test
+    public void testRemoveRuleWithNonInitializedPath() {
+        // DROOLS-1177
+        String drl1 =
+                "import " + MyEvent.class.getCanonicalName() + "\n" +
+                "declare MyEvent @role( event ) end\n" +
+                "rule \"RG_TEST_1\"\n" +
+                "    when\n" +
+                "       $dummy: MyEvent (id == 1)\n" +
+                "		$other: MyEvent (this != $dummy)\n" +
+                "    then\n" +
+                "        retract($other);\n" +
+                "end\n" +
+                "rule \"RG_TEST_2\"\n" +
+                "    when\n" +
+                "       $dummy: MyEvent (id == 1)\n" +
+                "    then\n" +
+                "        retract($dummy);\n" +
+                "end\n";
+
+        String drl2 =
+                "import " + MyEvent.class.getCanonicalName() + "\n" +
+                "declare IMyEvent @role( event ) end\n" +
+                "rule \"RG_TEST_2\"\n" +
+                "    when\n" +
+                "       $dummy: MyEvent (id == 1)\n" +
+                "    then\n" +
+                "        retract($dummy);\n" +
+                "end\n";
+
+        KieServices ks = KieServices.Factory.get();
+
+        KieModuleModel kproj = ks.newKieModuleModel();
+        KieBaseModel kieBaseModel1 = kproj.newKieBaseModel( "KBase1" ).setDefault( true )
+                                          .setEventProcessingMode(EventProcessingOption.STREAM);
+        KieSessionModel ksession1 = kieBaseModel1.newKieSessionModel("KSession1").setDefault(true)
+                                                 .setType(KieSessionModel.KieSessionType.STATEFUL);
+
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-upgrade", "1.0.0" );
+        deployJar( ks, createKJar( ks, kproj, releaseId1, null, drl1 ) );
+
+        KieContainer kc = ks.newKieContainer( releaseId1 );
+        KieSession ksession = kc.newKieSession();
+
+        ksession.insert( new MyEvent( 0 ) );
+
+        ReleaseId releaseId2 = ks.newReleaseId( "org.kie", "test-upgrade", "1.1.0" );
+        deployJar( ks, createKJar( ks, kproj, releaseId2, null, drl2 ) );
+        kc.updateToVersion( releaseId2 );
+    }
+
+    @Test
+    public void testIncrementalCompilationWithTimerNode() throws Exception {
+        // DROOLS-1195
+        String drl1 =  "package fr.edf.distribution.brms.common.test\n" +
+                       "import " + DummyEvent.class.getCanonicalName() + "\n" +
+                       "declare DummyEvent\n" +
+                       "    @role( event )\n" +
+                       "    @timestamp( eventTimestamp )\n" +
+                       "end\n" +
+                       "rule \"RG_TEST_TIMER\"\n" +
+                       "timer (int: 0 1; start=$expirationTimestamp , repeat-limit=0 )\n" +
+                       "    when\n" +
+                       "       $dummy: DummyEvent (id == 'timer', $expirationTimestamp : systemTimestamp )\n" +
+                       "    then\n " +
+                       "System.out.println(\"1\");\n" +
+                       "end\n";
+
+        String drl2 =  "package fr.edf.distribution.brms.common.test\n" +
+                       "import " + DummyEvent.class.getCanonicalName() + "\n" +
+                       "declare DummyEvent\n" +
+                       "    @role( event )\n" +
+                       "    @timestamp( eventTimestamp )\n" +
+                       "end\n" +
+                       "rule \"RG_TEST_TIMER_NEW\"\n" +
+                       "timer (int: 0 1; start=$expirationTimestamp , repeat-limit=0 )\n" +
+                       "    when\n" +
+                       "       $dummy: DummyEvent (id == 'timer', $expirationTimestamp : systemTimestamp )\n" +
+                       "		DummyEvent (id == 'timer_match')\n" +
+                       "    then\n " +
+                       "System.out.println(\"1\");\n" +
+                       "end\n" +
+                       "rule \"RG_OTHER_RULE\"\n" +
+                       "    when\n" +
+                       "       $dummy: DummyEvent ( id == 'timer' )\n" +
+                       "    then\n " +
+                       "System.out.println(\"2\");\n" +
+                       "end\n";
+
+        long now = System.currentTimeMillis();
+        KieServices ks = KieServices.Factory.get();
+
+        KieModuleModel kproj = ks.newKieModuleModel();
+        KieBaseModel kieBaseModel1 = kproj.newKieBaseModel( "KBase1" ).setDefault( true )
+                                          .setEventProcessingMode(EventProcessingOption.STREAM);
+        KieSessionModel ksession1 = kieBaseModel1.newKieSessionModel("KSession1").setDefault(true)
+                                                 .setType(KieSessionModel.KieSessionType.STATEFUL)
+                                                 .setClockType( ClockTypeOption.get( ClockType.PSEUDO_CLOCK.getId() ) );
+
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-upgrade", "1.0.0" );
+        deployJar( ks, createKJar( ks, kproj, releaseId1, null, drl1 ) );
+
+        KieContainer kc = ks.newKieContainer(releaseId1);
+        KieSession kieSession = kc.newKieSession();
+
+        DummyEvent dummyEvent = new DummyEvent();
+        dummyEvent.setId("timer");
+        dummyEvent.setEventTimestamp(now);
+        dummyEvent.setSystemTimestamp(now + TimeUnit.HOURS.toMillis(1));
+
+        DummyEvent other = new DummyEvent();
+        other.setId("timer_match");
+        other.setEventTimestamp(now);
+
+        kieSession.insert(dummyEvent);
+        kieSession.insert(other);
+
+        ReleaseId releaseId2 = ks.newReleaseId("org.kie", "test-upgrade", "2.0.0");
+        deployJar( ks, createKJar( ks, kproj, releaseId2, null, drl2 ) );
+
+        kc.updateToVersion(releaseId2);
+
+        PseudoClockScheduler scheduler = kieSession.getSessionClock();
+        scheduler.setStartupTime(now);
+        scheduler.advanceTime(1, TimeUnit.DAYS);
+        assertEquals( 2, kieSession.fireAllRules() );
+    }
+
+    public static class DummyEvent {
+
+        private String id;
+        private long eventTimestamp;
+        private long systemTimestamp;
+
+        public DummyEvent() {}
+
+        public DummyEvent(String id) {
+            this.id = id;
+        }
+
+        public long getEventTimestamp() {
+            return eventTimestamp;
+        }
+
+        public void setEventTimestamp(long eventTimestamp) {
+            this.eventTimestamp = eventTimestamp;
+        }
+
+        public long getSystemTimestamp() {
+            return systemTimestamp;
+        }
+
+        public void setSystemTimestamp(long systemTimestamp) {
+            this.systemTimestamp = systemTimestamp;
+        }
+
+        public String getId() {
+            return id;
+        }
+
+        public void setId(String id) {
+            this.id = id;
+        }
+    }
+
+    public static class OtherDummyEvent {
+
+        private String id;
+        private long eventTimestamp;
+        private long systemTimestamp;
+
+        public OtherDummyEvent() {}
+
+        public OtherDummyEvent(String id) {
+            this.id = id;
+        }
+
+        public long getEventTimestamp() {
+            return eventTimestamp;
+        }
+
+        public void setEventTimestamp(long eventTimestamp) {
+            this.eventTimestamp = eventTimestamp;
+        }
+
+        public long getSystemTimestamp() {
+            return systemTimestamp;
+        }
+
+        public void setSystemTimestamp(long systemTimestamp) {
+            this.systemTimestamp = systemTimestamp;
+        }
+
+        public String getId() {
+            return id;
+        }
+
+        public void setId(String id) {
+            this.id = id;
+        }
+    }
+
+    @Test
+    public void testEventDeclarationInSeparatedDRL() throws Exception {
+        // DROOLS-1241
+        String drl1 =
+                "import " + SimpleEvent.class.getCanonicalName() + ";\n"+
+                "declare SimpleEvent\n" +
+                "    @role( event )\n" +
+                "    @timestamp( timestamp )\n" +
+                "    @expires( 2d )\n" +
+                "end\n";
+
+        String drl2 =
+                "import " + SimpleEvent.class.getCanonicalName() + ";\n" +
+                "global java.util.List list;\n"+
+                "rule R1 when\n" +
+                "    $s:SimpleEvent(code==\"MY_CODE\") over window:time( 1s )\n" +
+                "then\n" +
+                "    list.add(\"MY_CODE\");\n" +
+                "end\n";
+
+        String drl3 =
+                "import " + SimpleEvent.class.getCanonicalName() + ";\n"+
+                "global java.util.List list;\n"+
+                "rule R2 when\n" +
+                "    $s:SimpleEvent(code==\"YOUR_CODE\") over window:time( 1s )\n" +
+                "then\n" +
+                "    list.add(\"YOUR_CODE\");\n" +
+                "end\n";
+
+        KieServices ks = KieServices.Factory.get();
+
+        KieModuleModel kproj = ks.newKieModuleModel();
+        KieBaseModel kieBaseModel1 = kproj.newKieBaseModel( "KBase1" ).setDefault( true )
+                                          .setEventProcessingMode( EventProcessingOption.STREAM );
+        KieSessionModel ksession1 = kieBaseModel1.newKieSessionModel( "KSession1" ).setDefault( true )
+                                                 .setType( KieSessionModel.KieSessionType.STATEFUL )
+                                                 .setClockType( ClockTypeOption.get( ClockType.PSEUDO_CLOCK.getId() ) );
+
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-cep-upgrade", "1.1.1" );
+        KieModule km = deployJar( ks, createKJar( ks, kproj, releaseId1, null, drl1, drl2 ) );
+
+        KieContainer kc = ks.newKieContainer(km.getReleaseId());
+
+        KieSession ksession = kc.newKieSession();
+        List<String> list = new ArrayList<String>();
+        ksession.setGlobal( "list", list );
+
+        ksession.insert( new SimpleEvent("1", "MY_CODE", 0) );
+        ksession.insert( new SimpleEvent("2", "YOUR_CODE", 0) );
+        ksession.fireAllRules();
+
+        assertEquals( 1, list.size() );
+        assertEquals( "MY_CODE", list.get(0) );
+        list.clear();
+
+        ReleaseId releaseId2 = ks.newReleaseId("org.kie", "test-cep-upgrade", "1.1.2");
+        // the null drl placeholder is used to have the same drl with a different file name
+        // this causes the removal and readdition of both rules
+        km = deployJar( ks, createKJar( ks, kproj, releaseId2, null, drl1, drl2, drl3 ) );
+        Results results = kc.updateToVersion(releaseId2);
+        assertEquals( 0, results.getMessages().size() );
+
+        ksession.fireAllRules();
+
+        assertEquals( 1, list.size() );
+        assertEquals( "YOUR_CODE", list.get(0) );
+    }
+
+    @Test
+    public void testKeepBuilderConfAfterIncrementalUpdate() throws Exception {
+        // DROOLS-1282
+        String drl1 = "import " + DummyEvent.class.getCanonicalName() + "\n" +
+                      "rule R1 when\n" +
+                      "  DummyEvent() @watch(id)\n" +
+                      "then end\n";
+
+        String drl2 = "import " + DummyEvent.class.getCanonicalName() + "\n" +
+                      "rule R1 when\n" +
+                      "  DummyEvent() @watch(*)\n" +
+                      "then end\n";
+
+        KieServices ks = KieServices.Factory.get();
+
+        KieModuleModel kproj = ks.newKieModuleModel()
+                                 .setConfigurationProperty( PropertySpecificOption.PROPERTY_NAME,
+                                                            PropertySpecificOption.ALWAYS.toString() );
+
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-property-reactive-upgrade", "1" );
+
+        KieModule km = deployJar( ks, createKJar( ks, kproj, releaseId1, null, drl1 ) );
+        KieContainer container = ks.newKieContainer(releaseId1);
+        container.newKieSession();
+
+        ReleaseId releaseId2 = ks.newReleaseId( "org.kie", "test-property-reactive-upgrade", "2" );
+        km = deployJar( ks, createKJar( ks, kproj, releaseId2, null, drl2 ) );
+
+        Results results = container.updateToVersion(releaseId2);
+        assertEquals( 0, results.getMessages().size() );
+    }
+
+    @Test
+    public void testRemovePackageFromKieBaseModel() throws Exception {
+        // DROOLS-1287
+        KieServices ks = KieServices.Factory.get();
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-remove-pkg", "1.0" );
+        ReleaseId releaseId2 = ks.newReleaseId( "org.kie", "test-remove-pkg", "1.1" );
+
+        createKJarWIthPackages( ks, releaseId1, "pkg1", "pkg2" );
+        KieContainer container = ks.newKieContainer(releaseId1);
+        KieSession ksession = container.newKieSession();
+
+        List<String> list = new ArrayList<String>();
+        ksession.setGlobal( "list", list );
+
+        ksession.insert( "test" );
+        ksession.fireAllRules();
+
+        assertEquals( 2, list.size() );
+        assertTrue( list.containsAll( asList("R1", "R2") ) );
+
+        createKJarWIthPackages( ks, releaseId2, "pkg2" );
+
+        Results results = container.updateToVersion(releaseId2);
+        assertEquals( 0, results.getMessages().size() );
+
+        ksession = container.newKieSession();
+        list = new ArrayList<String>();
+        ksession.setGlobal( "list", list );
+
+        ksession.insert( "test" );
+        ksession.fireAllRules();
+
+        assertEquals( 1, list.size() );
+        assertTrue( list.containsAll( asList("R2") ) );
+    }
+
+    @Test
+    public void testAddPackageToKieBaseModel() throws Exception {
+        // DROOLS-1287
+        KieServices ks = KieServices.Factory.get();
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-remove-pkg", "1.0" );
+        ReleaseId releaseId2 = ks.newReleaseId( "org.kie", "test-remove-pkg", "1.1" );
+
+        createKJarWIthPackages( ks, releaseId1, "pkg2" );
+        KieContainer container = ks.newKieContainer(releaseId1);
+        KieSession ksession = container.newKieSession();
+
+        List<String> list = new ArrayList<String>();
+        ksession.setGlobal( "list", list );
+
+        ksession.insert( "test" );
+        ksession.fireAllRules();
+
+        assertEquals( 1, list.size() );
+        assertTrue( list.containsAll( asList("R2") ) );
+
+        createKJarWIthPackages( ks, releaseId2, "pkg1", "pkg2" );
+
+        Results results = container.updateToVersion(releaseId2);
+        assertEquals( 0, results.getMessages().size() );
+
+        ksession = container.newKieSession();
+        list = new ArrayList<String>();
+        ksession.setGlobal( "list", list );
+
+        ksession.insert( "test" );
+        ksession.fireAllRules();
+
+        assertEquals( 2, list.size() );
+        assertTrue( list.containsAll( asList("R1", "R2") ) );
+    }
+    
+    @Test
+    public void testAlphaNodeSharingIsOK() throws Exception {
+       // inspired by drools-usage Fmt9wZUFi8g
+       // check timer -scheduled activations are preserved if rule untouched by incremental compilation even with alpha node sharing.
+       StringBuffer drl = new StringBuffer();
+       drl.append("package org.drools.compiler\n");
+       drl.append("global java.util.List list;\n");
+       drl.append("global java.util.List list2;\n");
+       drl.append("rule R1\n");
+       drl.append(" timer (int: 3s)\n");
+       drl.append(" when\n");
+       drl.append("   $m : String()\n");
+       drl.append(" then\n");
+       drl.append("   list.add( $m );\n");
+       drl.append("   retract( $m );\n");
+       drl.append("end\n");
+       drl.append("rule RS\n");
+       drl.append(" timer (int: 3s)\n");
+       drl.append(" salience 1\n");
+       drl.append(" when\n");
+       drl.append("   $i : Integer()\n");
+       drl.append("   $m : String()\n");
+       drl.append(" then\n");
+       drl.append("   System.out.println($i + \" \"+ $m);");
+       drl.append("   list2.add($i + \" \"+ $m);\n");
+       drl.append("end\n");
+
+       StringBuffer drl2 = new StringBuffer();
+       drl2.append("package org.drools.compiler\n");
+       drl2.append("global java.util.List list;\n");
+       drl2.append("global java.util.List list2;\n");
+       drl2.append("rule R1\n");
+       drl2.append(" timer (int: 3s)\n");
+       drl2.append(" when\n");
+       drl2.append("   $m : String()\n");
+       drl2.append(" then\n");
+       drl2.append("   list.add( $m );\n");
+       drl2.append("   list.add( $m );\n");
+       drl2.append("   retract( $m );\n");
+       drl2.append("end\n");
+       drl2.append("rule RS\n");
+       drl2.append(" timer (int: 3s)\n");
+       drl2.append(" salience 1\n");
+       drl2.append(" when\n");
+       drl2.append("   $i : Integer()\n");
+       drl2.append("   $m : String()\n");
+       drl2.append(" then\n");
+       drl2.append("   System.out.println($i + \" \"+ $m);");
+       drl2.append("   list2.add($i + \" \"+ $m);\n");
+       drl2.append("end\n");
+
+       KieServices ks = KieServices.Factory.get();
+
+       ReleaseId releaseId1 = ks.newReleaseId("org.kie", "test-upgrade", "1.0.0");
+       KieModule km = createAndDeployJarInStreamMode(ks, releaseId1, drl.toString());
+
+       KieContainer kc = ks.newKieContainer(km.getReleaseId());
+
+       KieSessionConfiguration ksconf = ks.newKieSessionConfiguration();
+       ksconf.setOption(TimedRuleExecutionOption.YES);
+       ksconf.setOption(TimerJobFactoryOption.get("trackable"));
+       ksconf.setOption(ClockTypeOption.get("pseudo"));
+
+       KieSession ksession = kc.newKieSession(ksconf);
+
+       SessionPseudoClock timeService = ksession.getSessionClock();
+       timeService.advanceTime(new Date().getTime(), TimeUnit.MILLISECONDS);
+
+       List list = new ArrayList();
+       ksession.setGlobal("list", list);
+       
+       List list2 = new ArrayList();
+       ksession.setGlobal("list2", list2);
+       
+       ksession.insert(new String("A"));
+       ksession.insert(1);
+       ksession.fireAllRules();
+
+       assertEquals("1. Initial run: no message expected after rule fired immediately after fireAllRules due to duration of 5 sec", 0, list.size());
+       assertEquals("1. Initial run: no message expected after rule fired immediately after fireAllRules due to duration of 5 sec", 0, list2.size());
+       
+       ReleaseId releaseId2 = ks.newReleaseId("org.kie", "test-upgrade", "1.0.1");
+       km = createAndDeployJarInStreamMode(ks, releaseId2, drl2.toString());
+       kc.updateToVersion(releaseId2);
+       timeService.advanceTime(3200, TimeUnit.MILLISECONDS);
+
+       assertEquals("1. R1 is NOT preserved", 0, list.size());
+       assertEquals("1. RS is preserved", 1, list2.size());
+    }
+
+
+    private void createKJarWIthPackages( KieServices ks, ReleaseId releaseId1, String... pkgs ) {
+        String drl1 = "global java.util.List list;\n" +
+                      "rule R1 when\n" +
+                      "  String()\n" +
+                      "then\n" +
+                      "  list.add(\"R1\");" +
+                      "end\n";
+
+        String drl2 = "global java.util.List list;\n" +
+                      "rule R2 when\n" +
+                      "  String()\n" +
+                      "then\n" +
+                      "  list.add(\"R2\");" +
+                      "end\n";
+
+        KieModuleModel kproj = ks.newKieModuleModel();
+        KieBaseModel kieBaseModel1 = kproj.newKieBaseModel( "kbase1" ).setDefault( true );
+        for (String pkg : pkgs) {
+            kieBaseModel1.addPackage( pkg );
+        }
+        KieSessionModel ksession1 = kieBaseModel1.newKieSessionModel( "ksession1" ).setDefault( true );
+
+        KieFileSystem kfs = ks.newKieFileSystem();
+        kfs.writeKModuleXML(kproj.toXML());
+        kfs.generateAndWritePomXML(releaseId1);
+        kfs.write("src/main/resources/pkg1/r1.drl", drl1);
+        kfs.write("src/main/resources/pkg2/r2.drl", drl2);
+
+        KieModule km = deployJar( ks, buildKJar( ks, kfs, releaseId1 ) );
+    }
+
+    @Test
+    public void testIncrementalCompilationWithNewEvent() throws Exception {
+        // DROOLS-1395
+        String drl1 =  "package fr.edf.distribution.brms.common.test\n" +
+                       "import " + DummyEvent.class.getCanonicalName() + "\n" +
+                       "declare DummyEvent\n" +
+                       "    @role( event )\n" +
+                       "    @timestamp( eventTimestamp )\n" +
+                       "end\n" +
+                       "rule \"RG_TEST_1\"\n" +
+                       "    when\n" +
+                       "       $event: DummyEvent ()\n" +
+                       "    then\n" +
+                       "        System.out.println(\"RG_TEST_1 fired\");\n" +
+                       "        retract($event);\n" +
+                       "end";
+
+        String drl2 =  "package fr.edf.distribution.brms.common.test\n" +
+                       "import " + DummyEvent.class.getCanonicalName() + "\n" +
+                       "import " + OtherDummyEvent.class.getCanonicalName() + "\n" +
+                       "declare DummyEvent\n" +
+                       "    @role( event )\n" +
+                       "    @timestamp( eventTimestamp )\n" +
+                       "end\n" +
+                       "declare OtherDummyEvent\n" +
+                       "    @role( event )\n" +
+                       "    @timestamp( eventTimestamp )\n" +
+                       "end\n" +
+                       "rule \"RG_TEST_2\"\n" +
+                       "    when\n" +
+                       "       $event: DummyEvent ()\n" +
+                       "       $other : OtherDummyEvent(id == $event.id, this after $event)\n" +
+                       "    then\n" +
+                       "        System.out.println(\"RG_TEST_2 fired\");\n" +
+                       "        retract($other);\n" +
+                       "end\n" +
+                       "\n" +
+                       "rule \"RG_TEST_1\"\n" +
+                       "    when\n" +
+                       "       $event: DummyEvent ()\n" +
+                       "    then\n" +
+                       "        System.out.println(\"RG_TEST_1 fired\");\n" +
+                       "        retract($event);\n" +
+                       "end\n";
+
+        KieServices ks = KieServices.Factory.get();
+
+        KieModuleModel kproj = ks.newKieModuleModel();
+        KieBaseModel kieBaseModel1 = kproj.newKieBaseModel( "KBase1" ).setDefault( true )
+                                          .setEventProcessingMode(EventProcessingOption.STREAM);
+        KieSessionModel ksession1 = kieBaseModel1.newKieSessionModel("KSession1").setDefault(true)
+                                                 .setType(KieSessionModel.KieSessionType.STATEFUL)
+                                                 .setClockType( ClockTypeOption.get( ClockType.PSEUDO_CLOCK.getId() ) );
+
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-upgrade", "1.0.0" );
+        deployJar( ks, createKJar( ks, kproj, releaseId1, null, drl1 ) );
+
+        KieContainer kc = ks.newKieContainer(releaseId1);
+        KieSession kieSession = kc.newKieSession();
+
+        DummyEvent evt = new DummyEvent("evt");
+        kieSession.insert(evt);
+        assertEquals(1, kieSession.fireAllRules());
+
+        ReleaseId releaseId2 = ks.newReleaseId("org.kie", "test-upgrade", "2.0.0");
+        deployJar( ks, createKJar( ks, kproj, releaseId2, null, drl2 ) );
+
+        kc.updateToVersion(releaseId2);
+
+        evt = new DummyEvent("evt");
+        kieSession.insert(evt);
+        OtherDummyEvent other = new OtherDummyEvent("evt");
+        kieSession.insert(other);
+        assertEquals(1, kieSession.fireAllRules());
+    }
+    
+    @Test
+    public void testKJarUpgradeWithSpace() throws Exception {
+        // DROOLS-1399
+        String drl_1 = "package org.drools.compiler\n" +
+                "rule Rx when\n" +
+                "   $m : Message( message == \"Hello World\" )\n" +
+                "then\n" +
+                "end\n";
+
+        String drl_2 = "package org.drools.compiler\n " + // <<- notice the EXTRA SPACE is the only change in this other version.
+                "rule Rx when\n" +
+                "   $m : Message( message == \"Hello World\" )\n" +
+                "then\n" +
+                "end\n";
+
+        KieServices ks = KieServices.Factory.get();
+
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-upgrade", "1.0.0" );
+        KieModule km = createAndDeployJar( ks, releaseId1, drl_1 );
+
+        KieContainer kc = ks.newKieContainer( km.getReleaseId() );
+        KieSession ksession = kc.newKieSession();
+        ksession.insert( new Message( "Hello World" ) );
+        assertEquals( 1, ksession.fireAllRules() );
+
+        ReleaseId releaseId2 = ks.newReleaseId( "org.kie", "test-upgrade", "1.1.0" );
+        km = createAndDeployJar( ks, releaseId2, drl_2 );
+
+        kc.updateToVersion( releaseId2 );
+
+        // rule Rx is UNchanged and should NOT fire again
+        assertEquals( 0, ksession.fireAllRules() );
+    }
+    
+    @Test
+    public void testKJarUpgradeDRLWithSpace2() throws Exception {
+        // DROOLS-1399 bis
+        String drl_1 = "package org.drools.compiler\n" +
+                "rule Rx when\n" +
+                "   $m : Message( message == \"Hello World\" )\n" +
+                "then\n" +
+                "end\n";
+
+        String drl_2 = "package org.drools.compiler\n" + 
+                "rule Rx when\n" +
+                "   $m : Message( message == \"Hello World\"  )\n" + // <<- notice the EXTRA SPACE is the only change in this other version.
+                "then\n" +
+                "end\n";
+
+        KieServices ks = KieServices.Factory.get();
+
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-upgrade", "1.0.0" );
+        KieModule km = createAndDeployJar( ks, releaseId1, drl_1 );
+
+        KieContainer kc = ks.newKieContainer( km.getReleaseId() );
+        KieSession ksession = kc.newKieSession();
+        ksession.insert( new Message( "Hello World" ) );
+        assertEquals( 1, ksession.fireAllRules() );
+
+        ReleaseId releaseId2 = ks.newReleaseId( "org.kie", "test-upgrade", "1.1.0" );
+        km = createAndDeployJar( ks, releaseId2, drl_2 );
+
+        kc.updateToVersion( releaseId2 );
+
+        // rule Rx is UNchanged and should NOT fire again
+        assertEquals( 0, ksession.fireAllRules() );
+    }
+    
+    @Test
+    public void testKJarUpgradeDRLWithSpace3() throws Exception {
+        // DROOLS-1399 ter
+        String drl_1 = "package org.drools.compiler\n" +
+                "rule Rs when $s : String() then System.out.println($s); end\n" +
+                "rule Rx when\n" +
+                "   $m : Message( message == \"Hello World\" )\n" +
+                "then\n" +
+                "  System.out.println($m); \n"+
+                "end\n";
+
+        String drl_2 = "package org.drools.compiler\n" + 
+                "rule Rs when $s : String( this == \"x\") then System.out.println($s); end\n" + // <<- notice rule changed
+                "rule Rx when\n" +
+                "   $m : Message( message == \"Hello World\"  )\n" + // <<- notice the EXTRA SPACE is the an ADDITIONAL change in this other version.
+                "then\n" +
+                "  System.out.println($m); \n"+
+                "end\n";
+
+        KieServices ks = KieServices.Factory.get();
+
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-upgrade", "1.0.0" );
+        KieModule km = createAndDeployJar( ks, releaseId1, drl_1 );
+
+        KieContainer kc = ks.newKieContainer( km.getReleaseId() );
+        KieSession ksession = kc.newKieSession();
+        final List<String> fired = new ArrayList<>();
+        ksession.addEventListener(new DefaultAgendaEventListener() {
+            @Override
+            public void afterMatchFired(AfterMatchFiredEvent event) {
+                fired.add(event.getMatch().getRule().getName());
+            }
+        });
+        
+        ksession.insert( new Message( "Hello World" ) );
+        ksession.insert( "x" );
+        assertEquals( 2, ksession.fireAllRules() );
+        assertTrue( fired.contains("Rs") );
+        assertTrue( fired.contains("Rx") );
+        
+        fired.clear();
+
+        ReleaseId releaseId2 = ks.newReleaseId( "org.kie", "test-upgrade", "1.1.0" );
+        km = createAndDeployJar( ks, releaseId2, drl_2 );
+
+        kc.updateToVersion( releaseId2 );
+
+        // rule Rx is UNchanged and should NOT fire again
+        // rule Rs is changed and should match again, and fire again.
+        assertEquals( 1, ksession.fireAllRules() );
+        assertTrue( fired.contains("Rs") );
+        assertFalse( fired.contains("Rx") );
+    }
+    
+    @Test
+    public void testKJarUpgradeDRLWithSpace4() throws Exception {
+        // DROOLS-1399 quater
+        String drl_1 = "package org.drools.compiler\n" +
+                "rule Rx when\n" +
+                "   $m : Message( message == \"Hello  World\" )\n" +
+                "then\n" +
+                "end\n";
+
+        String drl_2 = "package org.drools.compiler\n" + 
+                "rule Rx when\n" +
+                "   $m : Message( message == \"Hello World\" )\n" + // <<- notice the EXTRA SPACE typo was removed
+                "then\n" +
+                "end\n";
+
+        KieServices ks = KieServices.Factory.get();
+
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-upgrade", "1.0.0" );
+        KieModule km = createAndDeployJar( ks, releaseId1, drl_1 );
+
+        KieContainer kc = ks.newKieContainer( km.getReleaseId() );
+        KieSession ksession = kc.newKieSession();
+        ksession.insert( new Message( "Hello World" ) );
+        assertEquals( 0, ksession.fireAllRules() );
+
+        ReleaseId releaseId2 = ks.newReleaseId( "org.kie", "test-upgrade", "1.1.0" );
+        km = createAndDeployJar( ks, releaseId2, drl_2 );
+
+        kc.updateToVersion( releaseId2 );
+
+        // rule Rx is UNchanged and should NOT fire again
+        assertEquals( 1, ksession.fireAllRules() );
+    }
+    
+    @Test
+    public void testKJarUpgradeDRLWithSpace5() throws Exception {
+        // DROOLS-1399 quinquies
+        String drl_1 = "package org.drools.compiler\n" +
+                "rule Rx when\n" +
+                "   $m : Message( message == \"Hello'  World\" )\n" +
+                "then\n" +
+                "end\n";
+
+        String drl_2 = "package org.drools.compiler\n" + 
+                "rule Rx when\n" +
+                "   $m : Message( message == \"Hello' World\" )\n" + // <<- notice the EXTRA SPACE typo was removed
+                "then\n" +
+                "end\n";
+
+        KieServices ks = KieServices.Factory.get();
+
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-upgrade", "1.0.0" );
+        KieModule km = createAndDeployJar( ks, releaseId1, drl_1 );
+
+        KieContainer kc = ks.newKieContainer( km.getReleaseId() );
+        KieSession ksession = kc.newKieSession();
+        ksession.insert( new Message( "Hello' World" ) ); // <<- notice the ' character
+        assertEquals( 0, ksession.fireAllRules() );
+
+        ReleaseId releaseId2 = ks.newReleaseId( "org.kie", "test-upgrade", "1.1.0" );
+        km = createAndDeployJar( ks, releaseId2, drl_2 );
+
+        kc.updateToVersion( releaseId2 );
+
+        // rule Rx is UNchanged and should NOT fire again
+        assertEquals( 1, ksession.fireAllRules() );
+    }
+    
+    @Test
+    public void testKJarUpgradeWithSpace_usingSingleQuote() throws Exception {
+        // DROOLS-1399 (using single quote)
+        String drl_1 = "package org.drools.compiler\n" +
+                "rule Rx when\n" +
+                "   $m : Message( message == 'Hello World' )\n" +
+                "then\n" +
+                "end\n";
+
+        String drl_2 = "package org.drools.compiler\n " + // <<- notice the EXTRA SPACE is the only change in this other version.
+                "rule Rx when\n" +
+                "   $m : Message( message == 'Hello World' )\n" +
+                "then\n" +
+                "end\n";
+
+        KieServices ks = KieServices.Factory.get();
+
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-upgrade", "1.0.0" );
+        KieModule km = createAndDeployJar( ks, releaseId1, drl_1 );
+
+        KieContainer kc = ks.newKieContainer( km.getReleaseId() );
+        KieSession ksession = kc.newKieSession();
+        ksession.insert( new Message( "Hello World" ) );
+        assertEquals( 1, ksession.fireAllRules() );
+
+        ReleaseId releaseId2 = ks.newReleaseId( "org.kie", "test-upgrade", "1.1.0" );
+        km = createAndDeployJar( ks, releaseId2, drl_2 );
+
+        kc.updateToVersion( releaseId2 );
+
+        // rule Rx is UNchanged and should NOT fire again
+        assertEquals( 0, ksession.fireAllRules() );
+    }
+    
+    @Test
+    public void testKJarUpgradeDRLWithSpace2_usingSingleQuote() throws Exception {
+        // DROOLS-1399 bis (using single quote)
+        String drl_1 = "package org.drools.compiler\n" +
+                "rule Rx when\n" +
+                "   $m : Message( message == 'Hello World' )\n" +
+                "then\n" +
+                "end\n";
+
+        String drl_2 = "package org.drools.compiler\n" + 
+                "rule Rx when\n" +
+                "   $m : Message( message == 'Hello World'  )\n" + // <<- notice the EXTRA SPACE is the only change in this other version.
+                "then\n" +
+                "end\n";
+
+        KieServices ks = KieServices.Factory.get();
+
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-upgrade", "1.0.0" );
+        KieModule km = createAndDeployJar( ks, releaseId1, drl_1 );
+
+        KieContainer kc = ks.newKieContainer( km.getReleaseId() );
+        KieSession ksession = kc.newKieSession();
+        ksession.insert( new Message( "Hello World" ) );
+        assertEquals( 1, ksession.fireAllRules() );
+
+        ReleaseId releaseId2 = ks.newReleaseId( "org.kie", "test-upgrade", "1.1.0" );
+        km = createAndDeployJar( ks, releaseId2, drl_2 );
+
+        kc.updateToVersion( releaseId2 );
+
+        // rule Rx is UNchanged and should NOT fire again
+        assertEquals( 0, ksession.fireAllRules() );
+    }
+    
+    @Test
+    public void testKJarUpgradeDRLWithSpace3_usingSingleQuote() throws Exception {
+        // DROOLS-1399 ter (using single quote)
+        String drl_1 = "package org.drools.compiler\n" +
+                "rule Rs when $s : String() then System.out.println($s); end\n" +
+                "rule Rx when\n" +
+                "   $m : Message( message == 'Hello World' )\n" +
+                "then\n" +
+                "  System.out.println($m); \n"+
+                "end\n";
+
+        String drl_2 = "package org.drools.compiler\n" + 
+                "rule Rs when $s : String( this == 'x') then System.out.println($s); end\n" + // <<- notice rule changed
+                "rule Rx when\n" +
+                "   $m : Message( message == 'Hello World'  )\n" + // <<- notice the EXTRA SPACE is the an ADDITIONAL change in this other version.
+                "then\n" +
+                "  System.out.println($m); \n"+
+                "end\n";
+
+        KieServices ks = KieServices.Factory.get();
+
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-upgrade", "1.0.0" );
+        KieModule km = createAndDeployJar( ks, releaseId1, drl_1 );
+
+        KieContainer kc = ks.newKieContainer( km.getReleaseId() );
+        KieSession ksession = kc.newKieSession();
+        final List<String> fired = new ArrayList<>();
+        ksession.addEventListener(new DefaultAgendaEventListener() {
+            @Override
+            public void afterMatchFired(AfterMatchFiredEvent event) {
+                fired.add(event.getMatch().getRule().getName());
+            }
+        });
+        
+        ksession.insert( new Message( "Hello World" ) );
+        ksession.insert( "x" );
+        assertEquals( 2, ksession.fireAllRules() );
+        assertTrue( fired.contains("Rs") );
+        assertTrue( fired.contains("Rx") );
+        
+        fired.clear();
+
+        ReleaseId releaseId2 = ks.newReleaseId( "org.kie", "test-upgrade", "1.1.0" );
+        km = createAndDeployJar( ks, releaseId2, drl_2 );
+
+        kc.updateToVersion( releaseId2 );
+
+        // rule Rx is UNchanged and should NOT fire again
+        // rule Rs is changed and should match again, and fire again.
+        assertEquals( 1, ksession.fireAllRules() );
+        assertTrue( fired.contains("Rs") );
+        assertFalse( fired.contains("Rx") );
+    }
+    
+    @Test
+    public void testKJarUpgradeDRLWithSpace4_usingSingleQuote() throws Exception {
+        // DROOLS-1399 quater (using single quote)
+        String drl_1 = "package org.drools.compiler\n" +
+                "rule Rx when\n" +
+                "   $m : Message( message == 'Hello  World' )\n" +
+                "then\n" +
+                "end\n";
+
+        String drl_2 = "package org.drools.compiler\n" + 
+                "rule Rx when\n" +
+                "   $m : Message( message == 'Hello World' )\n" + // <<- notice the EXTRA SPACE typo was removed
+                "then\n" +
+                "end\n";
+
+        KieServices ks = KieServices.Factory.get();
+
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-upgrade", "1.0.0" );
+        KieModule km = createAndDeployJar( ks, releaseId1, drl_1 );
+
+        KieContainer kc = ks.newKieContainer( km.getReleaseId() );
+        KieSession ksession = kc.newKieSession();
+        ksession.insert( new Message( "Hello World" ) );
+        assertEquals( 0, ksession.fireAllRules() );
+
+        ReleaseId releaseId2 = ks.newReleaseId( "org.kie", "test-upgrade", "1.1.0" );
+        km = createAndDeployJar( ks, releaseId2, drl_2 );
+
+        kc.updateToVersion( releaseId2 );
+
+        // rule Rx is UNchanged and should NOT fire again
+        assertEquals( 1, ksession.fireAllRules() );
+    }
+    
+    @Test
+    public void testKJarUpgradeDRLWithSpace5_usingSingleQuote() throws Exception {
+        // DROOLS-1399 quinquies (using single quote)
+        String drl_1 = "package org.drools.compiler\n" +
+                "rule Rx when\n" +
+                "   $m : Message( message == 'Hello\\'  World' )\n" +
+                "then\n" +
+                "end\n";
+
+        String drl_2 = "package org.drools.compiler\n" + 
+                "rule Rx when\n" +
+                "   $m : Message( message == 'Hello\\' World' )\n" + // <<- notice the EXTRA SPACE typo was removed
+                "then\n" +
+                "end\n";
+
+        KieServices ks = KieServices.Factory.get();
+
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-upgrade", "1.0.0" );
+        KieModule km = createAndDeployJar( ks, releaseId1, drl_1 );
+
+        KieContainer kc = ks.newKieContainer( km.getReleaseId() );
+        KieSession ksession = kc.newKieSession();
+        ksession.insert( new Message( "Hello' World" ) ); // <<- notice the ' character on this one
+        assertEquals( 0, ksession.fireAllRules() );
+
+        ReleaseId releaseId2 = ks.newReleaseId( "org.kie", "test-upgrade", "1.1.0" );
+        km = createAndDeployJar( ks, releaseId2, drl_2 );
+
+        kc.updateToVersion( releaseId2 );
+
+        // rule Rx is UNchanged and should NOT fire again
+        assertEquals( 1, ksession.fireAllRules() );
+    }
+
+    @Test
+    public void testJavaClassRedefinition() {
+        // DROOLS-1402
+        String JAVA1 = "package org.test;" +
+                       "    public class MyBean {\n" +
+                       "        private String firstName;\n" +
+                       "        public MyBean() { /* empty constructor */ }\n" +
+                       "        public MyBean(String firstName) { this.firstName = firstName; }\n" +
+                       "        public String getFirstName() { return firstName; }\n" +
+                       "        public void setFirstName(String firstName) { this.firstName = firstName; }\n" +
+                       "    }";
+
+        String DRL1 = "package org.test;\n" +
+                      "\n" +
+                      "//from row number: 1\n" +
+                      "rule \"Row 1 HelloRules\"\n" +
+                      "    when\n" +
+                      "        $b : MyBean( firstName == null )\n" +
+                      "    then\n" +
+                      "        System.out.println($b);" +
+                      "end";
+
+        String INIT_DRL = "package org.test; rule RINIT when eval(true) then insert(new MyBean()); end";
+        String INIT_DRL_2 = "package org.test; rule RINIT when eval(1==1) then insert(new MyBean()); end";
+
+        String JAVA2 = "package org.test;" +
+                       "    public class MyBean {\n" +
+                       "        private String firstName;\n" +
+                       "        private String lastName;\n" +
+                       "        public MyBean() { /* empty constructor */ }\n" +
+                       "        public MyBean(String firstName) { this.firstName = firstName; }\n" +
+                       "        public MyBean(String firstName, String lastName) { this.firstName = firstName; this.lastName = lastName; }\n" +
+                       "        public String getFirstName() { return firstName; }\n" +
+                       "        public void setFirstName(String firstName) { this.firstName = firstName; }\n" +
+                       "        public String getLastName() { return lastName; }\n" +
+                       "        public void setLastName(String lastName) { this.lastName = lastName; }\n" +
+                       "    }";
+
+        String DRL2 = "package org.test;\n" +
+                      "\n" +
+                      "//from row number: 1\n" +
+                      "rule \"Row 1 HelloRules\"\n" +
+                      "    when\n" +
+                      "        $b : MyBean( firstName == null , lastName == null )\n" +
+                      "    then\n" +
+                      "        System.out.println($b);" +
+                      "end";
+
+        KieServices ks = KieServices.Factory.get();
+
+        KieFileSystem kfs = ks.newKieFileSystem();
+        ReleaseId id = ks.newReleaseId( "org.test", "myTest", "1.0.0" );
+
+        KieBuilder kieBuilder = ks.newKieBuilder( kfs );
+
+        kfs.generateAndWritePomXML( id );
+
+        kfs.write("src/main/java/org/test/MyBean.java",
+                  ks.getResources().newReaderResource(new StringReader(JAVA1)));
+
+        kfs.write( ks.getResources()
+                     .newReaderResource( new StringReader( DRL1 ) )
+                     .setResourceType( ResourceType.DRL )
+                     .setSourcePath( "rules.drl" ) );
+
+        kfs.write( ks.getResources()
+                     .newReaderResource( new StringReader( INIT_DRL ) )
+                     .setResourceType( ResourceType.DRL )
+                     .setSourcePath( "INIT_DRL.drl" ) );
+
+        kieBuilder.buildAll();
+
+        KieContainer kc = ks.newKieContainer( id );
+        KieSession ksession = kc.newKieSession();
+
+        int fired = ksession.fireAllRules();
+        assertEquals( 2, fired );
+
+        ReleaseId id2 = ks.newReleaseId( "org.test", "myTest", "2.0.0" );
+        KieFileSystem kfs2 = ks.newKieFileSystem();
+
+        KieBuilder kieBuilder2 = ks.newKieBuilder( kfs2 );
+
+        kfs2.generateAndWritePomXML( id2 );
+
+        kfs2.write("src/main/java/org/test/MyBean.java",
+                   ks.getResources().newReaderResource(new StringReader(JAVA2)));
+
+        kfs2.write( ks.getResources()
+                      .newReaderResource( new StringReader( DRL2 ) )
+                      .setResourceType( ResourceType.DRL )
+                      .setSourcePath( "rules.drl" ) );
+
+        kfs2.write( ks.getResources()
+                      .newReaderResource( new StringReader( INIT_DRL_2 ) )
+                      .setResourceType( ResourceType.DRL )
+                      .setSourcePath( "INIT_DRL.drl" ) );
+
+        kieBuilder2.buildAll();
+
+        Results updateResults = kc.updateToVersion(id2);
+        assertFalse(updateResults.hasMessages(Level.ERROR));
+        
+        fired = ksession.fireAllRules();
+        assertEquals( 2, fired );
+    }
+    
+    @Test
+    public void testJavaClassRedefinitionJoined() {
+        // DROOLS-1402
+        String JAVA1 = "package org.test;" +
+                       "    public class MyBean {\n" +
+                       "        private String firstName;\n" +
+                       "        public MyBean() { /* empty constructor */ }\n" +
+                       "        public MyBean(String firstName) { this.firstName = firstName; }\n" +
+                       "        public String getFirstName() { return firstName; }\n" +
+                       "        public void setFirstName(String firstName) { this.firstName = firstName; }\n" +
+                       "    }";
+
+        String DRL1 = "package org.test;\n" +
+                      "\n" +
+                      "//from row number: 1\n" +
+                      "rule \"Row 1 HelloRules\"\n" +
+                      "    when\n" +
+                      "        $b : MyBean( firstName == null )\n" +
+                      "        $s : String()\n" +
+                      "    then\n" +
+                      "        System.out.println($s + \" \" + $b);" +
+                      "end";
+
+        String INIT_DRL = "package org.test; rule RINIT when eval(true) then insert(new MyBean()); end";
+        String INIT_DRL_2 = "package org.test; rule RINIT when eval(1==1) then insert(new MyBean()); end";
+
+        String JAVA2 = "package org.test;" +
+                       "    public class MyBean {\n" +
+                       "        private String firstName;\n" +
+                       "        private String lastName;\n" +
+                       "        public MyBean() { /* empty constructor */ }\n" +
+                       "        public MyBean(String firstName) { this.firstName = firstName; }\n" +
+                       "        public MyBean(String firstName, String lastName) { this.firstName = firstName; this.lastName = lastName; }\n" +
+                       "        public String getFirstName() { return firstName; }\n" +
+                       "        public void setFirstName(String firstName) { this.firstName = firstName; }\n" +
+                       "        public String getLastName() { return lastName; }\n" +
+                       "        public void setLastName(String lastName) { this.lastName = lastName; }\n" +
+                       "    }";
+
+        String DRL2 = "package org.test;\n" +
+                      "\n" +
+                      "//from row number: 1\n" +
+                      "rule \"Row 1 HelloRules\"\n" +
+                      "    when\n" +
+                      "        $b : MyBean( firstName == null , lastName == null )\n" +
+                      "        $s : String()\n" +
+                      "    then\n" +
+                      "        System.out.println($s + \" \" + $b);" +
+                      "end";
+
+        KieServices ks = KieServices.Factory.get();
+
+        KieFileSystem kfs = ks.newKieFileSystem();
+        ReleaseId id = ks.newReleaseId( "org.test", "myTest", "1.0.0" );
+
+        KieBuilder kieBuilder = ks.newKieBuilder( kfs );
+
+        kfs.generateAndWritePomXML( id );
+
+        kfs.write( "src/main/java/org/test/MyBean.java",
+                   ks.getResources().newReaderResource( new StringReader( JAVA1 ) ) );
+
+        kfs.write( ks.getResources()
+                     .newReaderResource( new StringReader( DRL1 ) )
+                     .setResourceType( ResourceType.DRL )
+                     .setSourcePath( "rules.drl" ) );
+
+        kfs.write( ks.getResources()
+                     .newReaderResource( new StringReader( INIT_DRL ) )
+                     .setResourceType( ResourceType.DRL )
+                     .setSourcePath( "INIT_DRL.drl" ) );
+
+        kieBuilder.buildAll();
+
+        KieContainer kc = ks.newKieContainer( id );
+        KieSession ksession = kc.newKieSession();
+
+        ksession.insert( "This string joins with" );
+        int fired = ksession.fireAllRules();
+        assertEquals( 2, fired );
+
+        ReleaseId id2 = ks.newReleaseId( "org.test", "myTest", "2.0.0" );
+        KieFileSystem kfs2 = ks.newKieFileSystem();
+
+        KieBuilder kieBuilder2 = ks.newKieBuilder( kfs2 );
+
+        kfs2.generateAndWritePomXML( id2 );
+
+        kfs2.write( "src/main/java/org/test/MyBean.java",
+                    ks.getResources().newReaderResource( new StringReader( JAVA2 ) ) );
+
+        kfs2.write( ks.getResources()
+                      .newReaderResource( new StringReader( DRL2 ) )
+                      .setResourceType( ResourceType.DRL )
+                      .setSourcePath( "rules.drl" ) );
+
+        kfs2.write( ks.getResources()
+                      .newReaderResource( new StringReader( INIT_DRL_2 ) )
+                      .setResourceType( ResourceType.DRL )
+                      .setSourcePath( "INIT_DRL.drl" ) );
+
+        kieBuilder2.buildAll();
+
+        Results updateResults = kc.updateToVersion( id2 );
+        assertFalse( updateResults.hasMessages( Level.ERROR ) );
+
+        fired = ksession.fireAllRules();
+        assertEquals( 2, fired );
+    }
+
+    @Test(timeout = 10000L)
+    public void testMultipleIncrementalCompilationsWithFireUntilHalt() throws Exception {
+        // DROOLS-1406
+        KieServices ks = KieServices.Factory.get();
+
+        // Create an in-memory jar for version 1.0.0
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-fireUntilHalt", "1.0" );
+        KieModule km = createAndDeployJar( ks, releaseId1, getTestRuleForFireUntilHalt(0) );
+
+        // Create a session and fire rules
+        final KieContainer kc = ks.newKieContainer( km.getReleaseId() );
+        final KieSession kieSession = kc.newKieSession();
+
+        DebugList<String> list = new DebugList<String>();
+        kieSession.setGlobal( "list", list );
+        kieSession.insert( new Message( "X" ) );
+
+        CountDownLatch done = new CountDownLatch( 1 );
+        list.done = done;
+
+        new Thread( new Runnable() {
+            public void run() {
+                kieSession.fireUntilHalt();
+            }
+        }).start();
+
+        done.await();
+        assertEquals( 1, list.size() );
+        assertEquals( "0 - X", list.get(0) );
+        list.clear();
+
+        for (int i = 1; i < 10; i++) {
+            done = new CountDownLatch( 1 );
+            list.done = done;
+
+            ReleaseId releaseIdI = ks.newReleaseId( "org.kie", "test-fireUntilHalt", "1."+i );
+            km = createAndDeployJar( ks, releaseIdI, getTestRuleForFireUntilHalt(i) );
+
+            kc.updateToVersion( releaseIdI );
+
+            done.await();
+            assertEquals( 1, list.size() );
+            assertEquals( i + " - X", list.get(0) );
+            list.clear();
+        }
+
+        kieSession.halt();
+    }
+
+    private String getTestRuleForFireUntilHalt(int i) {
+        return "package org.drools.compiler\n" +
+               "global java.util.List list;\n" +
+               "rule Rx when\n" +
+               "   Message( $m : message )\n" +
+               "then\n" +
+               "    list.add(\"" + i + " - \" + $m);\n" +
+               "end\n";
+    }
+
+    public static class DebugList<T> extends ArrayList<T> {
+        CountDownLatch done;
+
+        @Override
+        public synchronized boolean add( T t ) {
+            boolean result = super.add( t );
+            done.countDown();
+            return result;
+        }
+    }
+
+    @Test
+    public void testIncrementalCompilationWithExtendsRule() throws Exception {
+        // DROOLS-1405
+        String drl1 =
+                "rule \"test1\" when then end\n";
+
+        String drl2 =
+                "rule \"test2\" extends \"test1\" when then end\n" +
+                "rule \"test3\" extends \"test1\" when then end\n";
+
+        KieServices ks = KieServices.Factory.get();
+
+        KieFileSystem kfs = ks.newKieFileSystem()
+                              .write( "src/main/resources/r1.drl", drl1 );
+
+        KieBuilder kieBuilder = ks.newKieBuilder( kfs ).buildAll();
+        assertEquals( 0, kieBuilder.getResults().getMessages( org.kie.api.builder.Message.Level.ERROR ).size() );
+
+        kfs.write( "src/main/resources/r2.drl", drl2 );
+        IncrementalResults addResults = ( (InternalKieBuilder) kieBuilder ).createFileSet( "src/main/resources/r2.drl" ).build();
+
+        assertEquals( 0, addResults.getAddedMessages().size() );
+    }
+
+    public static class BaseClass {
+        String baseField;
+        public String getBaseField() {
+            return baseField;
+        }
+        public void setBaseField(String baseField) {
+            this.baseField = baseField;
+        }
+    }
+
+    @Test
+    public void testUpdateWithPojoExtensionDifferentPackages() throws Exception {
+        // DROOLS-1491
+        String drlDeclare = "package org.drools.compiler.integrationtests\n" +
+                            "declare DroolsApplications extends " + BaseClass.class.getCanonicalName() + "\n" +
+                            "    droolsAppName: String\n" +
+                            "end";
+        String drlRule = "package org.drools.compiler.test\n" +
+                         "rule R1 when\n" +
+                         "   $fact : org.drools.compiler.integrationtests.DroolsApplications( droolsAppName == \"appName\" )\n" +
+                         "then\n" +
+                         "end";
+
+        KieServices ks = KieServices.Factory.get();
+        KieFileSystem kfs = ks.newKieFileSystem();
+        ReleaseId releaseId1 = ks.newReleaseId( "org.kie", "test-upgrade", "1.0.0" );
+
+        kfs.generateAndWritePomXML( releaseId1 );
+        kfs.write( ks.getResources()
+                     .newReaderResource( new StringReader( drlDeclare ) )
+                     .setResourceType( ResourceType.DRL )
+                     .setSourcePath( "drlDeclare.drl" ) );
+
+        KieBuilder kieBuilder = ks.newKieBuilder( kfs );
+        kieBuilder.buildAll();
+
+        KieContainer kc = ks.newKieContainer( releaseId1 );
+
+        KieSession ksession = kc.newKieSession();
+        FactType factType = kc.getKieBase().getFactType( "org.drools.compiler.integrationtests", "DroolsApplications" );
+        Object fact = factType.newInstance();
+        factType.set( fact, "droolsAppName", "appName" );
+        ksession.insert( fact );
+        assertEquals( 0, ksession.fireAllRules() );
+
+        ReleaseId releaseId2 = ks.newReleaseId( "org.kie", "test-upgrade", "1.1.0" );
+        KieFileSystem kfs2 = ks.newKieFileSystem();
+
+
+        kfs2.generateAndWritePomXML( releaseId2 );
+
+        kfs2.write( ks.getResources()
+                      .newReaderResource( new StringReader( drlDeclare ) )
+                      .setResourceType( ResourceType.DRL )
+                      .setSourcePath( "drlDeclare.drl" ) );
+
+        kfs2.write( ks.getResources()
+                      .newReaderResource( new StringReader( drlRule ) )
+                      .setResourceType( ResourceType.DRL )
+                      .setSourcePath( "drlRule.drl" ) );
+
+        KieBuilder kieBuilder2 = ks.newKieBuilder( kfs2 );
+        kieBuilder2.buildAll();
+
+        Results updateResults = kc.updateToVersion( releaseId2 );
+
+        assertEquals( 0, updateResults.getMessages().size() );
+
+        assertEquals( 1, ksession.fireAllRules() );
     }
 }

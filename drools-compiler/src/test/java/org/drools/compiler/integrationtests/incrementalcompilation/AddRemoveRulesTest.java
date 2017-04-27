@@ -19,7 +19,6 @@ import org.drools.core.common.InternalFactHandle;
 import org.drools.core.reteoo.LeftTuple;
 import org.drools.core.reteoo.RightTuple;
 import org.drools.core.reteoo.SubnetworkTuple;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.kie.api.KieBase;
 import org.kie.api.definition.rule.Rule;
@@ -554,7 +553,7 @@ public class AddRemoveRulesTest extends AbstractAddRemoveRulesTest {
         session.fireAllRules();
     }
 
-    @Test @Ignore("DROOLS-1031")
+    @Test
     public void testAddRemoveWithExtends() {
         final String packageName = "test_same_condition_pk" ;
         final String rule1 = "package " + packageName + ";" +
@@ -574,6 +573,7 @@ public class AddRemoveRulesTest extends AbstractAddRemoveRulesTest {
                 "then \n" +
                 "System.out.println('Child rule!'); \n"+
                 "end";
+
         final StatefulKnowledgeSession session = buildSessionInSteps( rule1, rule2);
         session.fireAllRules();
         final Map<String, Object> fact = new HashMap<String, Object>();
@@ -581,52 +581,12 @@ public class AddRemoveRulesTest extends AbstractAddRemoveRulesTest {
         fact.put("test", 1);
         session.insert(fact);
 
-        session.getKieBase().removeRule(packageName, "parentRule");
-        assertTrue(session.fireAllRules() == 0);
-    }
-
-    @Test @Ignore("DROOLS-1031")
-    public void testRuleWithExtendsModifyParent() {
-        final String packageName = "test_same_condition_pk" ;
-        final String rule1 = "package " + packageName + ";" +
-                "import java.util.Map; \n" +
-                "rule \"parentRule\" \n" +
-                "when \n" +
-                " Map(this['name'] == 'Michael') \n" +
-                "then \n" +
-                "System.out.println('Parent rule!'); \n"+
-                "end";
-
-        final String rule1modified = "package " + packageName + ";" +
-                "import java.util.Map; \n" +
-                "rule \"parentRule\" \n" +
-                "when \n" +
-                " Map(this['name'] == 'Jerry') \n" +
-                "then \n" +
-                "System.out.println('Parent rule modified!'); \n"+
-                "end";
-
-        final String rule2 = "package " + packageName + ";" +
-                "import java.util.Map; \n" +
-                "rule \"childRule\" \n" +
-                "     extends \"parentRule\"\n" +
-                "when \n" +
-                " Map(this['test'] == '1') \n" +
-                "then \n" +
-                "System.out.println('Child rule!'); \n"+
-                "end";
-        final StatefulKnowledgeSession session = buildSessionInSteps( rule1, rule2);
-        session.fireAllRules();
-
-        final KnowledgeBuilder kbuilder2 = createKnowledgeBuilder(session.getKieBase(), rule1modified);
-        session.getKieBase().addKnowledgePackages(kbuilder2.getKnowledgePackages());
-
-        final Map<String, Object> fact2 = new HashMap<String, Object>();
-        fact2.put("name", "Michael");
-        fact2.put("test", 1);
-        session.insert(fact2);
-
-        assertTrue(session.fireAllRules() == 0);
+        try {
+            session.getKieBase().removeRule(packageName, "parentRule");
+            fail("A parent rule cannot be removed if one of its children is still there");
+        } catch (Exception e) {
+            // OK
+        }
     }
 
     @Test
@@ -1330,7 +1290,6 @@ public class AddRemoveRulesTest extends AbstractAddRemoveRulesTest {
 
         StatefulKnowledgeSession ksession = runAddRemoveTest(builder.build(), additionalGlobals);
         InternalFactHandle  fh1 = (InternalFactHandle) ksession.getFactHandle(3);
-        assertNotNull( fh1.getLastLeftTuple() );
     }
 
     @Test
@@ -1352,7 +1311,6 @@ public class AddRemoveRulesTest extends AbstractAddRemoveRulesTest {
 
         InternalFactHandle  fh1 = (InternalFactHandle) ksession.getFactHandle(3);
         assertNotNull( fh1.getFirstRightTuple() );
-        assertSame( fh1.getFirstRightTuple() , fh1.getLastRightTuple() );
         assertEquals( 1, fh1.getFirstRightTuple().getTupleSink().getAssociatedRuleSize() );
         assertTrue( fh1.getFirstRightTuple().getTupleSink().isAssociatedWith(rulesMap.get(RULE2_NAME)));
     }
@@ -1376,7 +1334,6 @@ public class AddRemoveRulesTest extends AbstractAddRemoveRulesTest {
 
         InternalFactHandle  fh1 = (InternalFactHandle) ksession.getFactHandle(3);
         assertNotNull( fh1.getFirstRightTuple() );
-        assertSame( fh1.getFirstRightTuple() , fh1.getLastRightTuple() );
         assertEquals( 1, fh1.getFirstRightTuple().getTupleSink().getAssociatedRuleSize() );
         assertTrue( fh1.getFirstRightTuple().getTupleSink().isAssociatedWith(rulesMap.get(RULE1_NAME)));
     }
@@ -2287,6 +2244,127 @@ public class AddRemoveRulesTest extends AbstractAddRemoveRulesTest {
                .addOperation(TestOperationType.ADD_RULES, new String[]{rule1, rule2})
                .addOperation(TestOperationType.FIRE_RULES)
                .addOperation(TestOperationType.CHECK_RESULTS, new String[]{RULE1_NAME, RULE2_NAME});
+
+        runAddRemoveTest(builder.build(), new HashMap<String, Object>());
+    }
+
+    @Test
+    public void testOr() {
+
+        final String rule1 = " package " + PKG_NAME_TEST + ";\n" +
+                             " global java.util.List list\n" +
+                             " rule " + RULE1_NAME + " \n" +
+                             " when \n" +
+                             "   $k: Integer()\n" +
+                             "   ( Integer(this != 1) or Integer(this == 1) )\n" +
+                             " then\n" +
+                             "   list.add('" + RULE1_NAME + "'); \n" +
+                             " end";
+
+        final String rule2 = " package " + PKG_NAME_TEST + ";\n" +
+                             " global java.util.List list\n" +
+                             " rule " + RULE2_NAME + " \n" +
+                             " when \n" +
+                             "   Integer()\n" +
+                             " then\n" +
+                             "   list.add('" + RULE2_NAME + "'); \n" +
+                             " end";
+
+        final AddRemoveTestBuilder builder = new AddRemoveTestBuilder();
+        builder.addOperation(TestOperationType.CREATE_SESSION, new String[]{rule2})
+               .addOperation(TestOperationType.INSERT_FACTS, new Object[]{1})
+               .addOperation(TestOperationType.FIRE_RULES)
+               .addOperation(TestOperationType.CHECK_RESULTS, new String[]{RULE2_NAME})
+               .addOperation(TestOperationType.REMOVE_RULES, new String[]{RULE2_NAME})
+               .addOperation(TestOperationType.FIRE_RULES)
+               .addOperation(TestOperationType.CHECK_RESULTS, new String[]{})
+               .addOperation(TestOperationType.ADD_RULES, new String[]{rule1, rule2})
+               .addOperation(TestOperationType.FIRE_RULES)
+               .addOperation(TestOperationType.CHECK_RESULTS, new String[]{RULE1_NAME, RULE2_NAME});
+
+        runAddRemoveTest(builder.build(), new HashMap<String, Object>());
+    }
+
+    @Test
+    public void testOr2() {
+
+        final String rule1 = " package " + PKG_NAME_TEST + ";\n" +
+                             " global java.util.List list\n" +
+                             " rule " + RULE1_NAME + " \n" +
+                             " when \n" +
+                             "   Integer()\n" +
+                             " then\n" +
+                             "   list.add('" + RULE1_NAME + "'); \n" +
+                             " end";
+
+        final String rule2 = " package " + PKG_NAME_TEST + ";\n" +
+                             " global java.util.List list\n" +
+                             " rule " + RULE2_NAME + " \n" +
+                             " when \n" +
+                             "   $k: Integer()\n" +
+                             "   ( Integer(this != 1) or Integer(this == 1) )\n" +
+                             " then\n" +
+                             "   list.add('" + RULE2_NAME + "'); \n" +
+                             " end";
+
+        final AddRemoveTestBuilder builder = new AddRemoveTestBuilder();
+        builder.addOperation(TestOperationType.CREATE_SESSION, new String[]{rule1, rule2})
+               .addOperation(TestOperationType.INSERT_FACTS, new Object[]{1})
+               .addOperation(TestOperationType.FIRE_RULES)
+               .addOperation(TestOperationType.CHECK_RESULTS, new String[]{RULE1_NAME, RULE2_NAME})
+               .addOperation(TestOperationType.REMOVE_RULES, new String[]{RULE2_NAME})
+               .addOperation(TestOperationType.FIRE_RULES)
+               .addOperation(TestOperationType.CHECK_RESULTS, new String[]{})
+               .addOperation(TestOperationType.REMOVE_RULES, new String[]{RULE1_NAME})
+               .addOperation(TestOperationType.FIRE_RULES)
+               .addOperation(TestOperationType.CHECK_RESULTS, new String[]{})
+               .addOperation(TestOperationType.ADD_RULES, new String[]{rule2})
+               .addOperation(TestOperationType.FIRE_RULES)
+               .addOperation(TestOperationType.CHECK_RESULTS, new String[]{RULE2_NAME})
+               .addOperation(TestOperationType.ADD_RULES, new String[]{rule1})
+               .addOperation(TestOperationType.FIRE_RULES)
+               .addOperation(TestOperationType.CHECK_RESULTS, new String[]{RULE1_NAME})
+               .addOperation(TestOperationType.REMOVE_RULES, new String[]{RULE2_NAME, RULE1_NAME})
+               .addOperation(TestOperationType.FIRE_RULES)
+               .addOperation(TestOperationType.CHECK_RESULTS, new String[]{})
+        ;
+
+        runAddRemoveTest(builder.build(), new HashMap<String, Object>());
+    }
+
+    @Test
+    public void testEvals() {
+
+        final String rule1 = " package " + PKG_NAME_TEST + ";\n" +
+                             " global java.util.List list\n" +
+                             " rule " + RULE1_NAME + " \n" +
+                             " when \n" +
+                             "   Integer()\n" +
+                             " then\n" +
+                             "   list.add('" + RULE1_NAME + "'); \n" +
+                             " end";
+
+        final String rule2 = " package " + PKG_NAME_TEST + ";\n" +
+                             " global java.util.List list\n" +
+                             " rule " + RULE2_NAME + " \n" +
+                             " when \n" +
+                             "  $j: Integer() \n" +
+                             "  eval($j == 1) \n" +
+                             "  (eval(true) or eval($j == 1) ) \n" +
+                             " then\n" +
+                             "   list.add('" + RULE2_NAME + "'); \n" +
+                             " end";
+
+        final AddRemoveTestBuilder builder = new AddRemoveTestBuilder();
+        builder.addOperation(TestOperationType.CREATE_SESSION, new String[]{rule1, rule2})
+               .addOperation(TestOperationType.INSERT_FACTS, new Object[]{1})
+               .addOperation(TestOperationType.REMOVE_RULES, new String[]{RULE2_NAME})
+               .addOperation(TestOperationType.FIRE_RULES)
+               .addOperation(TestOperationType.CHECK_RESULTS, new String[]{RULE1_NAME})
+               .addOperation(TestOperationType.REMOVE_RULES, new String[]{RULE1_NAME})
+               .addOperation(TestOperationType.FIRE_RULES)
+               .addOperation(TestOperationType.CHECK_RESULTS, new String[]{})
+        ;
 
         runAddRemoveTest(builder.build(), new HashMap<String, Object>());
     }

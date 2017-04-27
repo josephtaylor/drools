@@ -15,6 +15,10 @@
 
 package org.drools.compiler.builder.impl;
 
+import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.util.Map;
+
 import org.drools.compiler.compiler.BoundIdentifiers;
 import org.drools.compiler.compiler.PackageRegistry;
 import org.drools.compiler.compiler.TypeDeclarationError;
@@ -42,12 +46,6 @@ import org.kie.api.definition.type.PropertyReactive;
 import org.kie.api.definition.type.Role;
 import org.kie.api.definition.type.Timestamp;
 import org.kie.internal.builder.conf.PropertySpecificOption;
-
-import java.beans.IntrospectionException;
-import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
-import java.util.Collections;
-import java.util.Map;
 
 public class TypeDeclarationConfigurator {
 
@@ -78,6 +76,7 @@ public class TypeDeclarationConfigurator {
                     }
                     if ( type.getExpirationOffset() >= 0 ) {
                         oldType.setExpirationOffset( type.getExpirationOffset() );
+                        oldType.setExpirationType( type.getExpirationPolicy() );
                     }
                 }
                 if (type.isPropertyReactive()) {
@@ -123,7 +122,6 @@ public class TypeDeclarationConfigurator {
             InstantiationException,
             IllegalAccessException,
             IOException,
-            IntrospectionException,
             ClassNotFoundException,
             NoSuchMethodException,
             InvocationTargetException,
@@ -196,13 +194,10 @@ public class TypeDeclarationConfigurator {
         }
 
         return (MVELAnalysisResult)
-                context.getDialect().analyzeExpression(context,
-                                                       typeDescr,
-                                                       durationField,
-                                                       new BoundIdentifiers( Collections.EMPTY_MAP,
-                                                                            Collections.EMPTY_MAP,
-                                                                            Collections.EMPTY_MAP,
-                                                                            type.getTypeClass()));
+                context.getDialect().analyzeExpression( context,
+                                                        typeDescr,
+                                                        durationField,
+                                                        new BoundIdentifiers( type.getTypeClass() ) );
     }
 
     private static InternalReadAccessor getFieldExtractor( TypeDeclaration type, String timestampField, InternalKnowledgePackage pkg, MVELAnalysisResult results ) {
@@ -233,6 +228,7 @@ public class TypeDeclarationConfigurator {
             long offset = TimeIntervalParser.parseSingle( expiration );
             // @Expires( -1 ) means never expire
             type.setExpirationOffset(offset == -1L ? Long.MAX_VALUE : offset);
+            type.setExpirationType( expires.policy() );
         }
     }
 

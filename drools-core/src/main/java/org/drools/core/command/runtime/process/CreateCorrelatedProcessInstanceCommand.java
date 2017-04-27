@@ -16,9 +16,18 @@
 
 package org.drools.core.command.runtime.process;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import org.drools.core.command.IdentifiableResult;
+import org.drools.core.command.impl.ExecutableCommand;
+import org.drools.core.command.impl.RegistryContext;
+import org.drools.core.runtime.impl.ExecutionResultImpl;
+import org.drools.core.xml.jaxb.util.JaxbMapAdapter;
+import org.kie.api.runtime.KieSession;
+import org.kie.api.runtime.process.ProcessInstance;
+import org.kie.api.runtime.Context;
+import org.kie.internal.command.CorrelationKeyCommand;
+import org.kie.internal.jaxb.CorrelationKeyXmlAdapter;
+import org.kie.internal.process.CorrelationAwareProcessRuntime;
+import org.kie.internal.process.CorrelationKey;
 
 import javax.xml.bind.annotation.XmlAccessType;
 import javax.xml.bind.annotation.XmlAccessorType;
@@ -26,22 +35,12 @@ import javax.xml.bind.annotation.XmlAttribute;
 import javax.xml.bind.annotation.XmlElement;
 import javax.xml.bind.annotation.XmlElementWrapper;
 import javax.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
-
-import org.drools.core.command.IdentifiableResult;
-import org.drools.core.command.impl.GenericCommand;
-import org.drools.core.command.impl.KnowledgeCommandContext;
-import org.drools.core.runtime.impl.ExecutionResultImpl;
-import org.drools.core.xml.jaxb.util.JaxbMapAdapter;
-import org.kie.api.runtime.KieSession;
-import org.kie.api.runtime.process.ProcessInstance;
-import org.kie.internal.command.Context;
-import org.kie.internal.command.CorrelationKeyCommand;
-import org.kie.internal.jaxb.CorrelationKeyXmlAdapter;
-import org.kie.internal.process.CorrelationAwareProcessRuntime;
-import org.kie.internal.process.CorrelationKey;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @XmlAccessorType(XmlAccessType.NONE)
-public class CreateCorrelatedProcessInstanceCommand implements GenericCommand<ProcessInstance>, IdentifiableResult, CorrelationKeyCommand {
+public class CreateCorrelatedProcessInstanceCommand implements ExecutableCommand<ProcessInstance>, IdentifiableResult, CorrelationKeyCommand {
 
     /** Generated serial version UID */
     private static final long serialVersionUID = -7810538827527530319L;
@@ -138,7 +137,7 @@ public class CreateCorrelatedProcessInstanceCommand implements GenericCommand<Pr
     }
     
     public ProcessInstance execute(Context context) {
-        KieSession ksession = ((KnowledgeCommandContext) context).getKieSession();
+        KieSession ksession = ((RegistryContext) context).lookup( KieSession.class );
 
         if (data != null) {
             for (Object o: data) {
@@ -147,8 +146,7 @@ public class CreateCorrelatedProcessInstanceCommand implements GenericCommand<Pr
         }
         ProcessInstance processInstance = ((CorrelationAwareProcessRuntime)ksession).createProcessInstance(processId, correlationKey, parameters);
         if ( this.outIdentifier != null ) {
-            ((ExecutionResultImpl) ((KnowledgeCommandContext) context).getExecutionResults()).getResults().put(this.outIdentifier,
-                                                                                                               processInstance.getId());
+            ((RegistryContext) context).lookup( ExecutionResultImpl.class ).setResult(this.outIdentifier, processInstance.getId());
         }
         return processInstance;
     }

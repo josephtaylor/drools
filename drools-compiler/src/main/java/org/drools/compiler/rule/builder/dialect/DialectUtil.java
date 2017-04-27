@@ -43,6 +43,7 @@ import org.drools.compiler.rule.builder.dialect.mvel.MVELAnalysisResult;
 import org.drools.compiler.rule.builder.dialect.mvel.MVELConsequenceBuilder;
 import org.drools.compiler.rule.builder.dialect.mvel.MVELDialect;
 import org.drools.core.factmodel.ClassDefinition;
+import org.drools.core.reteoo.PropertySpecificUtil;
 import org.drools.core.rule.ConsequenceMetaData;
 import org.drools.core.rule.Declaration;
 import org.drools.core.rule.TypeDeclaration;
@@ -75,7 +76,7 @@ import static org.drools.core.util.StringUtils.*;
 
 public final class DialectUtil {
 
-    private static final Pattern NON_ALPHA_REGEX = Pattern.compile("[ -/:-@\\[-`\\{-\\xff]");
+    private static final Pattern NON_ALPHA_REGEX = Pattern.compile("[\\W]");
     private static final Pattern LINE_BREAK_FINDER = Pattern.compile( "\\r\\n|\\r|\\n" );
 
     /**
@@ -604,7 +605,7 @@ public final class DialectUtil {
         boolean isPropertyReactive = typeDeclaration != null && typeDeclaration.isPropertyReactive();
         if (isPropertyReactive) {
             typeDeclaration.setTypeClass(typeClass);
-            settableProperties = typeDeclaration.getSettableProperties();
+            settableProperties = typeDeclaration.getAccessibleProperties();
         }
 
         ConsequenceMetaData.Statement statement = null;
@@ -661,17 +662,30 @@ public final class DialectUtil {
             List<String> settableProperties = null;
             if (isPropertyReactive) {
                 typeDeclaration.setTypeClass(typeClass);
-                settableProperties = typeDeclaration.getSettableProperties();
+                settableProperties = typeDeclaration.getAccessibleProperties();
                 modificationMask = getEmptyPropertyReactiveMask(settableProperties.size());
             }
 
             ConsequenceMetaData.Statement statement = new ConsequenceMetaData.Statement(ConsequenceMetaData.Statement.Type.MODIFY, typeClass);
             context.getRule().getConsequenceMetaData().addStatement(statement);
 
-            for (String expr : splitStatements(consequence)) {
-                String updateExpr = expr.replaceFirst("^\\Q" + obj + "\\E\\s*\\.", "");
-                if (!updateExpr.equals(expr)) {
-                    modificationMask = parseModifiedProperties(statement, settableProperties, typeDeclaration, isPropertyReactive, modificationMask, updateExpr);
+            if (isPropertyReactive) {
+                boolean parsedExprOnce = false;
+                // a late optimization to include this for-loop within this if
+                for (String expr : splitStatements(consequence)) {
+                    String updateExpr = expr.replaceFirst("^\\Q" + obj + "\\E\\s*\\.", "");
+                    if (!updateExpr.equals(expr)) {
+                        parsedExprOnce = true;
+                        modificationMask = parseModifiedProperties(statement, settableProperties, typeDeclaration, isPropertyReactive, modificationMask, updateExpr);
+                        if ( modificationMask == allSetButTraitBitMask() ) {
+                            // opt: if we were unable to detect the property in the mask is all set, so avoid the rest of the cycle
+                            break;
+                        }
+                    }
+                }
+                if ( !parsedExprOnce ) {
+                    // never called parseModifiedProperties(), hence never had the opportunity to "miss" the property and set mask to All-set; doing so here:
+                    modificationMask = allSetButTraitBitMask();
                 }
             }
         }
@@ -717,13 +731,17 @@ public final class DialectUtil {
                 statement.addField(propertyName, argsNr > 0 ? args.get(0) : null);
             }
 
-            String methodWithArgsNr = methodName + "_" + argsNr;
-            List<String> modifiedProps = typeDeclaration.getTypeClassDef().getModifiedPropsByMethod(methodWithArgsNr);
+            List<String> modifiedProps = typeDeclaration.getTypeClassDef().getModifiedPropsByMethod( methodName, argsNr );
             if (modifiedProps != null) {
                 for (String modifiedProp : modifiedProps) {
                     modificationMask = updateModificationMask(settableProperties, propertyReactive, modificationMask, modifiedProp);
                     statement.addField(modifiedProp, argsNr > 0 ? args.get(0) : null);
                 }
+            }
+            
+            if ( propertyReactive && propertyName == null && modifiedProps == null ) {
+                // I'm property reactive, but I was unable to infer which properties was modified, setting all bit in bitmask
+                modificationMask = allSetButTraitBitMask();
             }
         } else {
             String propertyName = extractFirstIdentifier(exprStr, 0);
@@ -752,7 +770,7 @@ public final class DialectUtil {
 
     private static Class<?> findModifiedClass(RuleBuildContext context, JavaBlockDescr d, Declaration declr) {
         if (declr != null) {
-            return ((ClassWireable) declr.getPattern().getObjectType()).getClassType();
+            return declr.getDeclarationClass();
         }
 
         String targetId = d.getTargetExpression().trim();

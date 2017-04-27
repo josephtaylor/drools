@@ -18,16 +18,14 @@ package org.drools.core.reteoo;
 
 import java.io.Serializable;
 
+import org.drools.core.WorkingMemoryEntryPoint;
 import org.drools.core.common.AbstractFactHandleFactory;
 import org.drools.core.common.DefaultFactHandle;
 import org.drools.core.common.EventFactHandle;
 import org.drools.core.common.InternalFactHandle;
 import org.drools.core.common.InternalWorkingMemory;
-import org.drools.core.common.InternalWorkingMemoryEntryPoint;
-import org.drools.core.factmodel.traits.TraitProxy;
 import org.drools.core.rule.TypeDeclaration;
 import org.drools.core.spi.FactHandleFactory;
-import org.kie.api.runtime.rule.EntryPoint;
 
 public class ReteooFactHandleFactory extends AbstractFactHandleFactory implements Serializable {
 
@@ -51,18 +49,18 @@ public class ReteooFactHandleFactory extends AbstractFactHandleFactory implement
                                              final long recency,
                                              final ObjectTypeConf conf,
                                              final InternalWorkingMemory workingMemory,
-                                             final InternalWorkingMemoryEntryPoint wmEntryPoint ) {
+                                             final WorkingMemoryEntryPoint wmEntryPoint ) {
         if ( conf != null && conf.isEvent() ) {
             TypeDeclaration type = conf.getTypeDeclaration();
             long timestamp;
-            if ( type.getTimestampExtractor() != null ) {
+            if ( type != null && type.getTimestampExtractor() != null ) {
                 timestamp = type.getTimestampExtractor().getLongValue( workingMemory,
                                                                        object );
             } else {
                 timestamp = workingMemory.getTimerService().getCurrentTime();
             }
             long duration = 0;
-            if ( type.getDurationExtractor() != null ) {
+            if ( type != null && type.getDurationExtractor() != null ) {
                 duration = type.getDurationExtractor().getLongValue( workingMemory,
                                                                      object );
             }
@@ -71,13 +69,13 @@ public class ReteooFactHandleFactory extends AbstractFactHandleFactory implement
                                         recency,
                                         timestamp,
                                         duration,
-                                        wmEntryPoint,
+                                        wmEntryPoint != null ? wmEntryPoint : workingMemory,
                                         conf != null && conf.isTrait() );
         } else {
             return new DefaultFactHandle( id,
                                           object,
                                           recency,
-                                          wmEntryPoint,
+                                          wmEntryPoint != null ? wmEntryPoint : workingMemory,
                                           conf != null && conf.isTrait() );
         }
     }

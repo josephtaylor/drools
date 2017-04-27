@@ -27,8 +27,11 @@ import org.junit.Assert;
 import org.kie.api.KieBase;
 import org.kie.api.KieBaseConfiguration;
 import org.kie.api.KieServices;
-import org.kie.api.builder.*;
+import org.kie.api.builder.KieBuilder;
+import org.kie.api.builder.KieFileSystem;
+import org.kie.api.builder.KieModule;
 import org.kie.api.builder.Message;
+import org.kie.api.builder.ReleaseId;
 import org.kie.api.builder.Results;
 import org.kie.api.builder.model.KieModuleModel;
 import org.kie.api.io.Resource;
@@ -40,10 +43,10 @@ import org.kie.api.runtime.KieSessionConfiguration;
 import org.kie.api.runtime.conf.KieSessionOption;
 import org.kie.internal.KnowledgeBase;
 import org.kie.internal.KnowledgeBaseFactory;
+import org.kie.internal.builder.InternalKieBuilder;
 import org.kie.internal.builder.KnowledgeBuilder;
 import org.kie.internal.builder.KnowledgeBuilderConfiguration;
 import org.kie.internal.builder.KnowledgeBuilderFactory;
-import org.kie.internal.builder.conf.RuleEngineOption;
 import org.kie.internal.definition.KnowledgePackage;
 import org.kie.internal.io.ResourceFactory;
 import org.kie.internal.marshalling.MarshallerFactory;
@@ -53,6 +56,7 @@ import org.kie.internal.runtime.StatelessKnowledgeSession;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.util.Collection;
+import java.util.function.Predicate;
 
 /**
  * This contains methods common to many of the tests in drools-compiler. </p>
@@ -61,7 +65,6 @@ import java.util.Collection;
  * drools-persistence-jpa.
  */
 public class CommonTestMethodBase extends Assert {
-	public static RuleEngineOption phreak = RuleEngineOption.PHREAK;
 
 	protected KieSession createKieSession(KieBase kbase) {
 		return kbase.newKieSession();
@@ -95,32 +98,28 @@ public class CommonTestMethodBase extends Assert {
 		return kbase.newStatelessKnowledgeSession();
 	}
 
-	protected KnowledgeBase loadKnowledgeBaseFromString(String... drlContentStrings) {
-		return loadKnowledgeBaseFromString(null, null, phreak, drlContentStrings);
-	}
-
 	protected KnowledgeBase loadKnowledgeBaseFromString(NodeFactory nodeFactory, String... drlContentStrings) {
-		return loadKnowledgeBaseFromString(null, null, phreak, nodeFactory, drlContentStrings);
+		return loadKnowledgeBaseFromString(null, null, nodeFactory, drlContentStrings);
 	}
 
-	protected KnowledgeBase loadKnowledgeBaseFromString(RuleEngineOption phreak, String... drlContentStrings) {
-		return loadKnowledgeBaseFromString(null, null, phreak, drlContentStrings);
+	protected KnowledgeBase loadKnowledgeBaseFromString(String... drlContentStrings) {
+		return loadKnowledgeBaseFromString(null, null, drlContentStrings);
 	}
 
 	protected KnowledgeBase loadKnowledgeBaseFromString(KnowledgeBuilderConfiguration config, String... drlContentStrings) {
-		return loadKnowledgeBaseFromString(config, null, phreak, drlContentStrings);
+		return loadKnowledgeBaseFromString(config, null, drlContentStrings);
 	}
 
 	protected KnowledgeBase loadKnowledgeBaseFromString(
 			KieBaseConfiguration kBaseConfig, String... drlContentStrings) {
-		return loadKnowledgeBaseFromString(null, kBaseConfig, phreak, drlContentStrings);
+		return loadKnowledgeBaseFromString(null, kBaseConfig, drlContentStrings);
 	}
 
-	protected KnowledgeBase loadKnowledgeBaseFromString( KnowledgeBuilderConfiguration config, KieBaseConfiguration kBaseConfig, RuleEngineOption phreak, String... drlContentStrings) {
-		return loadKnowledgeBaseFromString( config, kBaseConfig, phreak, (NodeFactory)null, drlContentStrings);
+	protected KnowledgeBase loadKnowledgeBaseFromString( KnowledgeBuilderConfiguration config, KieBaseConfiguration kBaseConfig, String... drlContentStrings) {
+		return loadKnowledgeBaseFromString( config, kBaseConfig, (NodeFactory)null, drlContentStrings);
 	}
 
-	protected KnowledgeBase loadKnowledgeBaseFromString( KnowledgeBuilderConfiguration config, KieBaseConfiguration kBaseConfig, RuleEngineOption phreak, NodeFactory nodeFactory, String... drlContentStrings) {
+	protected KnowledgeBase loadKnowledgeBaseFromString( KnowledgeBuilderConfiguration config, KieBaseConfiguration kBaseConfig, NodeFactory nodeFactory, String... drlContentStrings) {
 		KnowledgeBuilder kbuilder = config == null ? KnowledgeBuilderFactory.newKnowledgeBuilder() : KnowledgeBuilderFactory.newKnowledgeBuilder(config);
 		for (String drlContentString : drlContentStrings) {
 			kbuilder.add(ResourceFactory.newByteArrayResource(drlContentString
@@ -133,7 +132,6 @@ public class CommonTestMethodBase extends Assert {
 		if (kBaseConfig == null) {
 			kBaseConfig = KnowledgeBaseFactory.newKnowledgeBaseConfiguration();
 		}
-		kBaseConfig.setOption(phreak);
 		KnowledgeBase kbase = kBaseConfig == null ? KnowledgeBaseFactory.newKnowledgeBase() : KnowledgeBaseFactory.newKnowledgeBase(kBaseConfig);
 		if (nodeFactory != null) {
 			((KnowledgeBaseImpl) kbase).getConfiguration().getComponentFactory().setNodeFactoryProvider( nodeFactory);
@@ -148,7 +146,6 @@ public class CommonTestMethodBase extends Assert {
 		if (kbaseConf == null) {
 			kbaseConf = KnowledgeBaseFactory.newKnowledgeBaseConfiguration();
 		}
-		kbaseConf.setOption(phreak);
 		KnowledgeBase kbase = KnowledgeBaseFactory.newKnowledgeBase(kbaseConf);
 		kbase.addKnowledgePackages(knowledgePackages);
 		try {
@@ -169,7 +166,6 @@ public class CommonTestMethodBase extends Assert {
 		if (kbaseConf == null) {
 			kbaseConf = KnowledgeBaseFactory.newKnowledgeBaseConfiguration();
 		}
-		kbaseConf.setOption(phreak);
 		KnowledgeBase kbase = KnowledgeBaseFactory.newKnowledgeBase(kbaseConf);
 		kbase.addKnowledgePackages(knowledgePackages);
 		try {
@@ -262,12 +258,10 @@ public class CommonTestMethodBase extends Assert {
 
     protected KnowledgeBase getKnowledgeBase() {
         KieBaseConfiguration kBaseConfig = KnowledgeBaseFactory.newKnowledgeBaseConfiguration();
-        kBaseConfig.setOption(phreak);
         return getKnowledgeBase(kBaseConfig);
     }
 
     protected KnowledgeBase getKnowledgeBase(KieBaseConfiguration kBaseConfig) {
-        kBaseConfig.setOption(phreak);
         KnowledgeBase kbase = KnowledgeBaseFactory.newKnowledgeBase(kBaseConfig);
         try {
             kbase = SerializationHelper.serializeObject(kbase, ((InternalKnowledgeBase) kbase).getRootClassLoader());
@@ -277,13 +271,20 @@ public class CommonTestMethodBase extends Assert {
         return kbase;
     }
 
-	protected KnowledgeBase loadKnowledgeBase(String... classPathResources) {
-		return loadKnowledgeBase(null, null, classPathResources);
-	}
+    protected KnowledgeBase loadKnowledgeBase(String... classPathResources) {
+        return loadKnowledgeBase(null, null, classPathResources);
+    }
 
-	protected InternalAgenda getInternalAgenda(StatefulKnowledgeSession session) {
-		return (InternalAgenda) session.getAgenda();
-	}
+    protected InternalAgenda getInternalAgenda(StatefulKnowledgeSession session) {
+        return (InternalAgenda) session.getAgenda();
+    }
+
+    protected void waitBusy(final long waitDuration) {
+        final long waitEndTime = System.currentTimeMillis() + waitDuration;
+        while (System.currentTimeMillis() < waitEndTime) {
+            // do nothing, only spin.
+        }
+    }
 
 	public static byte[] createJar(KieServices ks,
 			                       ReleaseId releaseId,
@@ -313,13 +314,21 @@ public class CommonTestMethodBase extends Assert {
 	}
 
 	public static KieModule createAndDeployJar(KieServices ks, String kmoduleContent, ReleaseId releaseId, Resource... resources) {
-		byte[] jar = createJar(ks, kmoduleContent, releaseId, resources);
+	    return createAndDeployJar( ks, kmoduleContent, o -> true, releaseId, resources );
+	}
+
+    public static KieModule createAndDeployJar(KieServices ks,
+                                               String kmoduleContent,
+                                               Predicate<String> classFilter,
+                                               ReleaseId releaseId,
+                                               Resource... resources) {
+		byte[] jar = createJar(ks, kmoduleContent, classFilter, releaseId, resources);
 
 		KieModule km = deployJarIntoRepository(ks, jar);
 		return km;
 	}
 
-	public static byte[] createJar(KieServices ks, String kmoduleContent, ReleaseId releaseId, Resource... resources) {
+	public static byte[] createJar(KieServices ks, String kmoduleContent, Predicate<String> classFilter, ReleaseId releaseId, Resource... resources) {
 		KieFileSystem kfs = ks.newKieFileSystem().generateAndWritePomXML(releaseId).writeKModuleXML(kmoduleContent);
 		for (int i = 0; i < resources.length; i++) {
 			if (resources[i] != null) {
@@ -327,7 +336,7 @@ public class CommonTestMethodBase extends Assert {
 			}
 		}
 		KieBuilder kieBuilder = ks.newKieBuilder(kfs);
-		kieBuilder.buildAll();
+		((InternalKieBuilder) kieBuilder).buildAll(classFilter);
 		Results results = kieBuilder.getResults();
 		if (results.hasMessages(Message.Level.ERROR)) {
 			throw new IllegalStateException(results.getMessages(Message.Level.ERROR).toString());
@@ -392,20 +401,24 @@ public class CommonTestMethodBase extends Assert {
                 kfs.write("src/main/resources/r" + i + ".drl", drls[i]);
             }
         }
-        KieBuilder kb = ks.newKieBuilder(kfs).buildAll();
-        if( kb.getResults().hasMessages( org.kie.api.builder.Message.Level.ERROR ) ) {
-            for( org.kie.api.builder.Message result : kb.getResults().getMessages() ) {
+		return buildKJar( ks, kfs, releaseId );
+    }
+
+	public static byte[] buildKJar( KieServices ks, KieFileSystem kfs, ReleaseId releaseId ) {
+		KieBuilder kb = ks.newKieBuilder( kfs ).buildAll();
+		if( kb.getResults().hasMessages( Message.Level.ERROR ) ) {
+            for( Message result : kb.getResults().getMessages() ) {
                 System.out.println(result.getText());
             }
             return null;
         }
-        InternalKieModule kieModule = (InternalKieModule) ks.getRepository()
-                .getKieModule(releaseId);
-        byte[] jar = kieModule.getBytes();
-        return jar;
-    }
+		InternalKieModule kieModule = (InternalKieModule) ks.getRepository()
+															.getKieModule(releaseId);
+		byte[] jar = kieModule.getBytes();
+		return jar;
+	}
 
-    public static KieModule deployJar(KieServices ks, byte[] jar) {
+	public static KieModule deployJar(KieServices ks, byte[] jar) {
         // Deploy jar into the repository
         Resource jarRes = ks.getResources().newByteArrayResource(jar);
         KieModule km = ks.getRepository().addKieModule(jarRes);

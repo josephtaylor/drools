@@ -27,6 +27,7 @@ import org.drools.compiler.rule.builder.AccumulateBuilder;
 import org.drools.compiler.rule.builder.RuleBuildContext;
 import org.drools.compiler.rule.builder.RuleConditionBuilder;
 import org.drools.compiler.rule.builder.dialect.java.parser.JavaLocalDeclarationDescr;
+import org.drools.compiler.rule.builder.dialect.mvel.MVELExprAnalyzer;
 import org.drools.compiler.rule.builder.util.PackageBuilderUtil;
 import org.drools.core.base.accumulators.JavaAccumulatorFunctionExecutor;
 import org.drools.core.base.extractors.ArrayElementReader;
@@ -47,6 +48,8 @@ import org.drools.core.spi.InternalReadAccessor;
 import org.drools.core.util.index.IndexUtil;
 import org.kie.api.runtime.rule.AccumulateFunction;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
@@ -124,12 +127,12 @@ public class JavaAccumulateBuilder
         return accumulate;
     }
 
-    private Accumulate buildExternalFunctionCall( final RuleBuildContext context,
-                                                  final AccumulateDescr accumDescr,
-                                                  final RuleConditionElement source,
+    private Accumulate buildExternalFunctionCall( RuleBuildContext context,
+                                                  AccumulateDescr accumDescr,
+                                                  RuleConditionElement source,
                                                   Map<String, Declaration> declsInScope,
                                                   Map<String, Class< ? >> declCls,
-                                                  final boolean readLocalsFromTuple) {
+                                                  boolean readLocalsFromTuple) {
         // list of functions to build
         final List<AccumulateFunctionCallDescr> funcCalls = accumDescr.getFunctions();
         // list of available source declarations
@@ -150,7 +153,7 @@ public class JavaAccumulateBuilder
 
             int index = 0;
             for ( AccumulateFunctionCallDescr fc : funcCalls ) {
-                AccumulateFunction function = getAccumulateFunction(context, accumDescr, fc);
+                AccumulateFunction function = getAccumulateFunction(context, accumDescr, fc, source, declCls);
                 if (function == null) {
                     return null;
                 }
@@ -164,8 +167,18 @@ public class JavaAccumulateBuilder
                                         accumulators );
         } else {
             AccumulateFunctionCallDescr fc = accumDescr.getFunctions().get(0);
-            AccumulateFunction function = getAccumulateFunction(context, accumDescr, fc);
+            AccumulateFunction function = getAccumulateFunction(context, accumDescr, fc, source, declCls);
             if (function == null) {
+                return null;
+            }
+
+            Class<?> returnType = function.getResultType();
+            if (!pattern.isCompatibleWithAccumulateReturnType(returnType)) {
+                context.addError( new DescrBuildError( accumDescr,
+                                                       context.getRuleDescr(),
+                                                       null,
+                                                       "Pattern of type: '" + pattern.getObjectType() + "' on rule '" + context.getRuleDescr().getName() +
+                                                       "' is not compatible with type " + returnType.getCanonicalName() + " returned by accumulate function.") );
                 return null;
             }
 
@@ -187,7 +200,7 @@ public class JavaAccumulateBuilder
                                                            null,
                                                            "Duplicate declaration for variable '" + fc.getBind() + "' in the rule '" + context.getRule().getName() + "'" ) );
                 } else {
-                    Declaration inner = context.getDeclarationResolver().getDeclaration( context.getRule(), fc.getBind() );
+                    Declaration inner = context.getDeclarationResolver().getDeclaration( fc.getBind() );
                     Constraint c = new MvelConstraint( Collections.singletonList( context.getPkg().getName() ),
                                                        index >= 0
                                                             ? "this[ " + index + " ] == " + fc.getBind()
@@ -196,7 +209,7 @@ public class JavaAccumulateBuilder
                                                        null,
                                                        null,
                                                        IndexUtil.ConstraintType.EQUAL,
-                                                       context.getDeclarationResolver().getDeclaration( context.getRule(), fc.getBind() ),
+                                                       context.getDeclarationResolver().getDeclaration( fc.getBind() ),
                                                        index >= 0
                                                             ? new ArrayElementReader( readAccessor, index, resultType )
                                                             : readAccessor,
@@ -211,20 +224,48 @@ public class JavaAccumulateBuilder
         }
     }
 
-    private AccumulateFunction getAccumulateFunction(RuleBuildContext context, AccumulateDescr accumDescr, AccumulateFunctionCallDescr fc) {
+    private AccumulateFunction getAccumulateFunction(RuleBuildContext context,
+                                                     AccumulateDescr accumDescr,
+                                                     AccumulateFunctionCallDescr fc,
+                                                     RuleConditionElement source,
+                                                     Map<String, Class< ? >> declCls) {
+        String functionName = getFunctionName( context, fc, source, declCls );
+
         // find the corresponding function
-        AccumulateFunction function = context.getConfiguration().getAccumulateFunction( fc.getFunction() );
+        AccumulateFunction function = context.getConfiguration().getAccumulateFunction( functionName );
         if( function == null ) {
             // might have been imported in the package
-            function = context.getKnowledgeBuilder().getPackage().getAccumulateFunctions().get(fc.getFunction());
+            function = context.getKnowledgeBuilder().getPackage().getAccumulateFunctions().get( functionName );
         }
         if ( function == null ) {
             context.addError( new DescrBuildError( accumDescr,
                                                    context.getRuleDescr(),
                                                    null,
-                                                   "Unknown accumulate function: '" + fc.getFunction() + "' on rule '" + context.getRuleDescr().getName() + "'. All accumulate functions must be registered before building a resource." ) );
+                                                   "Unknown accumulate function: '" + functionName + "' on rule '" + context.getRuleDescr().getName() + "'. All accumulate functions must be registered before building a resource." ) );
         }
         return function;
+    }
+
+    private String getFunctionName( RuleBuildContext context, AccumulateFunctionCallDescr fc, RuleConditionElement source, Map<String, Class<?>> declCls ) {
+        String functionName = fc.getFunction();
+        if (functionName.equals( "sum" )) {
+            Class<?> exprClass = MVELExprAnalyzer.getExpressionType( context, declCls, source, fc.getParams()[0] );
+            if (exprClass == int.class || exprClass == Integer.class) {
+                functionName = "sumI";
+            } else if (exprClass == long.class || exprClass == Long.class) {
+                functionName = "sumL";
+            } else if (exprClass == BigInteger.class) {
+                functionName = "sumBI";
+            } else if (exprClass == BigDecimal.class) {
+                functionName = "sumBD";
+            }
+        } else if (functionName.equals( "average" )) {
+            Class<?> exprClass = MVELExprAnalyzer.getExpressionType( context, declCls, source, fc.getParams()[0] );
+            if (exprClass == BigDecimal.class) {
+                functionName = "averageBD";
+            }
+        }
+        return functionName;
     }
 
     private Accumulator buildAccumulator(RuleBuildContext context, AccumulateDescr accumDescr, Map<String, Declaration> declsInScope, Map<String, Class<?>> declCls, boolean readLocalsFromTuple, Declaration[] sourceDeclArr, Set<Declaration> requiredDecl, AccumulateFunctionCallDescr fc, AccumulateFunction function) {
@@ -232,8 +273,7 @@ public class JavaAccumulateBuilder
         final JavaAnalysisResult analysis = (JavaAnalysisResult) context.getDialect().analyzeBlock( context,
                                                                                                     accumDescr,
                                                                                                     fc.getParams().length > 0 ? fc.getParams()[0] : "\"\"",
-                                                                                                    new BoundIdentifiers( declCls,
-                                                                                                                          context.getKnowledgeBuilder().getGlobals() ) );
+                                                                                                    new BoundIdentifiers( declCls, context ) );
 
         if ( analysis == null ) {
             // not possible to get the analysis results - compilation error has been already logged
@@ -312,8 +352,7 @@ public class JavaAccumulateBuilder
         final String className = "Accumulate" + context.getNextId();
         accumDescr.setClassName( className );
 
-        BoundIdentifiers available = new BoundIdentifiers( declCls,
-                                                           context.getKnowledgeBuilder().getGlobals() );
+        BoundIdentifiers available = new BoundIdentifiers( declCls, context );
 
         final JavaAnalysisResult initCodeAnalysis = (JavaAnalysisResult) context.getDialect().analyzeBlock( context,
                                                                                                             accumDescr,

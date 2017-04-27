@@ -16,6 +16,18 @@
 
 package org.drools.core.base;
 
+import java.io.Externalizable;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import java.lang.reflect.Field;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Map.Entry;
+
 import org.drools.core.base.AccessorKey.AccessorType;
 import org.drools.core.base.extractors.MVELDateClassFieldReader;
 import org.drools.core.base.extractors.MVELNumberClassFieldReader;
@@ -28,17 +40,6 @@ import org.drools.core.spi.InternalReadAccessor;
 import org.drools.core.util.asm.ClassFieldInspector;
 import org.kie.api.definition.type.FactField;
 import org.kie.internal.builder.KnowledgeBuilderResult;
-
-import java.io.Externalizable;
-import java.io.IOException;
-import java.io.ObjectInput;
-import java.io.ObjectOutput;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Map.Entry;
 
 public class ClassFieldAccessorStore
     implements
@@ -129,6 +130,10 @@ public class ClassFieldAccessorStore
         return ( ClassFieldReader ) entry.getClassFieldReader();
     }
 
+    public ClassFieldReader getReader(AccessorKey key) {
+        FieldLookupEntry entry = (FieldLookupEntry) this.lookup.get( key );
+        return entry != null ? ( ClassFieldReader ) entry.getClassFieldReader() : null;
+    }
 
     public InternalReadAccessor getMVELReader(final String pkgName,
                                                     final String className,
@@ -232,6 +237,13 @@ public class ClassFieldAccessorStore
         }
     }
 
+    public void removeClass(Class<?> clazz) {
+        lookup.remove(new AccessorKey( clazz.getName(), null, AccessorKey.AccessorType.ClassObjectType ));
+        for (Field field : clazz.getDeclaredFields()) {
+            lookup.remove(new AccessorKey( clazz.getName(), field.getName(), AccessorKey.AccessorType.FieldAccessor ));
+        }
+    }
+
     public void merge(ClassFieldAccessorStore other) {
         for ( Entry<AccessorKey, BaseLookupEntry> entry : other.lookup.entrySet() ) {
             switch ( entry.getValue().getAccessorType() ) {
@@ -263,9 +275,11 @@ public class ClassFieldAccessorStore
                     ClassObjectTypeLookupEntry lookupEntry = (ClassObjectTypeLookupEntry) this.lookup.get( entry.getKey() );
                     if ( lookupEntry == null ) {
                         // Create new entry with correct ClassObjectType and targets
-                        lookupEntry = new ClassObjectTypeLookupEntry(  cache.getClassObjectType( ((ClassObjectTypeLookupEntry) entry.getValue()).getClassObjectType(), true ) );
-                        this.lookup.put( entry.getKey(), lookupEntry );
-
+                        ClassObjectType oldObjectType = ((ClassObjectTypeLookupEntry) entry.getValue()).getClassObjectType();
+                        ClassObjectType newObjectType = cache.getClassObjectType( oldObjectType, true );
+                        this.lookup.put( entry.getKey(), new ClassObjectTypeLookupEntry( newObjectType ) );
+                        // also rewire the class of the old ClassObjectType in case it is still in use
+                        oldObjectType.setClassType( newObjectType.getClassType() );
                     }
                 }
             }

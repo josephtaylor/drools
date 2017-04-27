@@ -48,7 +48,6 @@ import org.kie.internal.KnowledgeBase;
 import org.kie.internal.KnowledgeBaseFactory;
 import org.kie.internal.builder.KnowledgeBuilder;
 import org.kie.internal.builder.KnowledgeBuilderFactory;
-import org.kie.internal.builder.conf.RuleEngineOption;
 import org.kie.internal.definition.KnowledgePackage;
 import org.kie.internal.io.ResourceFactory;
 import org.kie.internal.logger.KnowledgeRuntimeLogger;
@@ -1035,10 +1034,6 @@ public class TruthMaintenanceTest extends CommonTestMethodBase {
     @Test(timeout=10000)
     public void testTMSWithLateUpdate() {
         //  JBRULES-3416
-        if( CommonTestMethodBase.phreak == RuleEngineOption.RETEOO ) {
-            return;  // Feature can never work in Rete mode.
-        }
-
         String str =""+
                 "package org.drools.compiler.test;\n" +
                 "\n" +
@@ -1168,7 +1163,7 @@ public class TruthMaintenanceTest extends CommonTestMethodBase {
         ksession.setGlobal("partiallyCovered", partiallyCovered);
         ksession.setGlobal("notCovered", notCovered);
 
-        KnowledgeRuntimeLogger logger = KnowledgeRuntimeLoggerFactory.newFileLogger(ksession, "test");
+        KnowledgeRuntimeLogger logger = KnowledgeRuntimeLoggerFactory.newFileLogger(ksession, "target/test");
 
         // Using 4 IntervalRequirement objects that never change during the execution of the test
         // Staffing required at interval 100

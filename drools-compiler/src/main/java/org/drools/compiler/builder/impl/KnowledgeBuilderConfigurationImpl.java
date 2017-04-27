@@ -60,6 +60,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.net.URL;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -121,7 +122,7 @@ public class KnowledgeBuilderConfigurationImpl
 
     private boolean                           classLoaderCache        = true;
 
-    private static final PropertySpecificOption DEFAULT_PROP_SPEC_OPT = PropertySpecificOption.ALLOWED;
+    private static final PropertySpecificOption DEFAULT_PROP_SPEC_OPT = PropertySpecificOption.ALWAYS;
     private PropertySpecificOption            propertySpecificOption  = DEFAULT_PROP_SPEC_OPT;
 
     private String                            defaultPackageName;
@@ -161,7 +162,6 @@ public class KnowledgeBuilderConfigurationImpl
 
     /**
      * Programmatic properties file, added with lease precedence
-     * @param properties
      */
     public KnowledgeBuilderConfigurationImpl(Properties properties) {
         init(properties,
@@ -170,8 +170,6 @@ public class KnowledgeBuilderConfigurationImpl
 
     /**
      * Programmatic properties file, added with lease precedence
-     * @param classLoaders
-     * @param properties
      */
     public KnowledgeBuilderConfigurationImpl(Properties properties,
             ClassLoader... classLoaders) {
@@ -305,6 +303,11 @@ public class KnowledgeBuilderConfigurationImpl
             } catch (IllegalArgumentException e) {
                 log.warn("Invalid value " + value + " for option " + LanguageLevelOption.PROPERTY_NAME);
             }
+        } else {
+            // if the property from the kmodule was not intercepted above, just add it to the chained properties.
+            Properties additionalProperty = new Properties();
+            additionalProperty.setProperty(name, value);
+            chainedProperties.addProperties(additionalProperty);
         }
     }
 
@@ -352,7 +355,7 @@ public class KnowledgeBuilderConfigurationImpl
         this.chainedProperties.mapStartsWith(dialectProperties,
                 "drools.dialect",
                 false);
-        setDefaultDialect((String) dialectProperties.remove(DefaultDialectOption.PROPERTY_NAME));
+        setDefaultDialect(dialectProperties.remove(DefaultDialectOption.PROPERTY_NAME));
 
         for (Map.Entry<String, String> entry : dialectProperties.entrySet()) {
             String str = entry.getKey();
@@ -537,21 +540,6 @@ public class KnowledgeBuilderConfigurationImpl
         }
     }
 
-    /**
-     * This method is deprecated and will be removed 
-     * @return
-     * 
-     * @deprecated
-     */
-    public Map<String, String> getAccumulateFunctionsMap() {
-        Map<String, String> result = new HashMap<String, String>();
-        for (Map.Entry<String, AccumulateFunction> entry : this.accumulateFunctions.entrySet()) {
-            result.put(entry.getKey(),
-                    entry.getValue().getClass().getName());
-        }
-        return result;
-    }
-
     public void addAccumulateFunction(String identifier,
             String className) {
         this.accumulateFunctions.put(identifier,
@@ -575,6 +563,11 @@ public class KnowledgeBuilderConfigurationImpl
 
     public AccumulateFunction getAccumulateFunction(String identifier) {
         return this.accumulateFunctions.get(identifier);
+    }
+
+    // Used by droolsjbpm-tools
+    public Collection<String> getAccumulateFunctionNames() {
+        return this.accumulateFunctions.keySet();
     }
 
     @SuppressWarnings("unchecked")

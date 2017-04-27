@@ -16,7 +16,6 @@
 
 package org.drools.core.reteoo.builder;
 
-import org.drools.core.reteoo.LeftTupleSource;
 import org.drools.core.rule.QueryElement;
 import org.drools.core.rule.RuleConditionElement;
 
@@ -42,14 +41,14 @@ public class QueryElementBuilder
         utils.checkUnboundDeclarations( context,
                                         qe.getRequiredDeclarations() );
 
-        context.setTupleSource( (LeftTupleSource) utils.attachNode( context,
-                                                                    context.getComponentFactory().getNodeFactoryService().buildQueryElementNode(
-                                                                                          context.getNextId(),
-                                                                                          context.getTupleSource(),
-                                                                                          qe,
-                                                                                          context.isTupleMemoryEnabled(),
-                                                                                          qe.isOpenQuery(),
-                                                                                          context ) ) );
+        context.setTupleSource( utils.attachNode( context,
+                                                  context.getComponentFactory().getNodeFactoryService().buildQueryElementNode(
+                                                                        context.getNextId(),
+                                                                        context.getTupleSource(),
+                                                                        qe,
+                                                                        context.isTupleMemoryEnabled(),
+                                                                        qe.isOpenQuery(),
+                                                                        context ) ) );
         context.popRuleComponent();
         context.incrementCurrentPatternOffset();
     }

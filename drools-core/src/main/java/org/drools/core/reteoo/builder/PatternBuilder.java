@@ -16,6 +16,10 @@
 
 package org.drools.core.reteoo.builder;
 
+import java.util.LinkedList;
+import java.util.List;
+import java.util.ListIterator;
+
 import org.drools.core.base.ClassObjectType;
 import org.drools.core.base.DroolsQuery;
 import org.drools.core.base.mvel.ActivationPropertyHandler;
@@ -23,7 +27,6 @@ import org.drools.core.base.mvel.MVELCompilationUnit.PropertyHandlerFactoryFixer
 import org.drools.core.common.AgendaItemImpl;
 import org.drools.core.common.InstanceNotEqualsConstraint;
 import org.drools.core.reteoo.EntryPointNode;
-import org.drools.core.reteoo.ObjectSource;
 import org.drools.core.reteoo.ObjectTypeNode;
 import org.drools.core.reteoo.WindowNode;
 import org.drools.core.rule.Behavior;
@@ -46,15 +49,13 @@ import org.drools.core.time.impl.CompositeMaxDurationTimer;
 import org.drools.core.time.impl.DurationTimer;
 import org.drools.core.time.impl.Timer;
 import org.kie.api.conf.EventProcessingOption;
+import org.kie.api.definition.type.Expires.Policy;
 import org.mvel2.integration.PropertyHandler;
 import org.mvel2.integration.PropertyHandlerFactory;
 
-import java.util.LinkedList;
-import java.util.List;
-import java.util.ListIterator;
-
 import static org.drools.core.reteoo.builder.GroupElementBuilder.AndBuilder.buildJoinNode;
 import static org.drools.core.reteoo.builder.GroupElementBuilder.AndBuilder.buildTupleSource;
+import static org.drools.core.rule.TypeDeclaration.NEVER_EXPIRES;
 
 /**
  * A builder for patterns
@@ -97,7 +98,7 @@ public class PatternBuilder
             }
         }
 
-        Constraints constraints = createConstraints(context, utils, pattern);
+        Constraints constraints = createConstraints(context, pattern);
 
         // Create BetaConstraints object
         context.setBetaconstraints( constraints.betaConstraints );
@@ -152,7 +153,7 @@ public class PatternBuilder
                                                                                                    behaviors,
                                                                                                    context.getObjectSource(),
                                                                                                    context );
-            context.setObjectSource( (WindowNode) utils.attachNode( context, wn ) );
+            context.setObjectSource( utils.attachNode( context, wn ) );
 
             // alpha constraints added to the window node already
             constraints.alphaConstraints.clear();
@@ -181,20 +182,22 @@ public class PatternBuilder
 
                 Declaration declaration = xpathConstraint.getDeclaration();
 
-                Pattern clonedPattern = new Pattern( pattern.getIndex(),
-                                                     context.getCurrentPatternOffset(),
-                                                     new ClassObjectType( xpathConstraint.getResultClass() ),
-                                                     declaration.getIdentifier(),
-                                                     declaration.isInternalFact() );
-
-                declaration.setPattern( clonedPattern );
+                if ( declaration != null ) { // oopath actually have the binding
+                    Pattern clonedPattern = new Pattern( pattern.getIndex(),
+                                                         context.getCurrentPatternOffset(),
+                                                         new ClassObjectType( xpathConstraint.getResultClass() ),
+                                                         declaration.getIdentifier(),
+                                                         declaration.isInternalFact() );
+    
+                    declaration.setPattern( clonedPattern );
+                }
             }
 
             context.popRuleComponent();
         }
     }
 
-    private Constraints createConstraints(BuildContext context, BuildUtils utils, Pattern pattern) {
+    private Constraints createConstraints(BuildContext context, Pattern pattern) {
         Constraints constraints = new Constraints();
         // check if cross products for identity patterns should be disabled
         checkRemoveIdentities( context,
@@ -286,20 +289,43 @@ public class PatternBuilder
         return false;
     }
 
-    private static long getExpiratioOffsetForType(BuildContext context,
-                                                  ObjectType objectType) {
-        long expirationOffset = -1;
-        for ( TypeDeclaration type : context.getKnowledgeBase().getTypeDeclarations() ) {
-            if ( type.getObjectType().isAssignableFrom( objectType ) ) {
-                expirationOffset = Math.max( type.getExpirationOffset(),
-                                             expirationOffset );
+    private static ExpirationSpec getExpirationForType( BuildContext context,
+                                              ObjectType objectType ) {
+        long offset = NEVER_EXPIRES;
+        boolean hard = false;
+
+        for (TypeDeclaration type : context.getKnowledgeBase().getTypeDeclarations()) {
+            if (type.getObjectType().isAssignableFrom( objectType )) {
+                if ( hard ) {
+                    if ( type.getExpirationPolicy() == Policy.TIME_HARD && type.getExpirationOffset() > offset ) {
+                        offset = type.getExpirationOffset();
+                    }
+                } else {
+                    if ( type.getExpirationPolicy() == Policy.TIME_HARD ) {
+                        offset = type.getExpirationOffset();
+                        hard = true;
+                    } else if ( type.getExpirationOffset() > offset ) {
+                        offset = type.getExpirationOffset();
+                    }
+                }
             }
         }
+
         // if none of the type declarations have an @expires annotation
         // we return -1 (no-expiration) value, otherwise we return the
         // set expiration value+1 to enable the fact to match events with
         // the same timestamp
-        return expirationOffset == -1 ? -1 : expirationOffset+1;
+        return new ExpirationSpec( offset == NEVER_EXPIRES ? NEVER_EXPIRES : offset+1, hard );
+    }
+
+    private static class ExpirationSpec {
+        final long offset;
+        final boolean hard;
+
+        private ExpirationSpec( long offset, boolean hard ) {
+            this.offset = offset;
+            this.hard = hard;
+        }
     }
 
     public void attachAlphaNodes(final BuildContext context,
@@ -315,12 +341,6 @@ public class PatternBuilder
         NodeFactory nfactory = context.getComponentFactory().getNodeFactoryService();
         
         if ( context.getCurrentEntryPoint() != EntryPointId.DEFAULT && context.isAttachPQN() ) {
-            if ( !context.getKnowledgeBase().getConfiguration().isPhreakEnabled() ) {
-                context.setObjectSource( (ObjectSource) utils.attachNode( context,
-                                                                          nfactory.buildPropagationQueuingNode( context.getNextId(),
-                                                                                                                context.getObjectSource(),
-                                                                                                                context ) ) );
-            }
             // the entry-point specific network nodes are attached, so, set context to default entry-point
             context.setCurrentEntryPoint( EntryPointId.DEFAULT );
         }
@@ -329,11 +349,11 @@ public class PatternBuilder
     protected void buildAlphaNodeChain( BuildContext context, BuildUtils utils, Pattern pattern, List<AlphaNodeFieldConstraint> alphaConstraints ) {
         for ( final AlphaNodeFieldConstraint constraint : alphaConstraints ) {
             context.pushRuleComponent( constraint );
-            context.setObjectSource( (ObjectSource) utils.attachNode( context,
-                                                                      context.getComponentFactory().getNodeFactoryService().buildAlphaNode( context.getNextId(),
-                                                                                                                                            constraint,
-                                                                                                                                            context.getObjectSource(),
-                                                                                                                                            context) ) );
+            context.setObjectSource( utils.attachNode( context,
+                                                       context.getComponentFactory().getNodeFactoryService().buildAlphaNode( context.getNextId(),
+                                                                                                                             constraint,
+                                                                                                                             context.getObjectSource(),
+                                                                                                                             context) ) );
             context.popRuleComponent();
         }
     }
@@ -355,35 +375,40 @@ public class PatternBuilder
                                                  objectType,
                                                  context );
         if ( objectType.isEvent() && EventProcessingOption.STREAM.equals( context.getKnowledgeBase().getConfiguration().getEventProcessingMode() ) ) {
-            long expirationOffset = getExpiratioOffsetForType( context,
-                                                               objectType );
-            if( expirationOffset != -1 ) {
-                // expiration policy is set, so use it
-                otn.setExpirationOffset( expirationOffset );
+            ExpirationSpec expirationSpec = getExpirationForType( context, objectType );
+
+            if( expirationSpec.offset != NEVER_EXPIRES && expirationSpec.hard ) {
+                // hard expiration is set, so use it
+                otn.setExpirationOffset( expirationSpec.offset );
             } else {
                 // otherwise calculate it based on behaviours and temporal constraints
+                long offset = NEVER_EXPIRES;
                 for ( Behavior behavior : pattern.getBehaviors() ) {
-                    if ( behavior.getExpirationOffset() != -1 ) {
-                        expirationOffset = Math.max( behavior.getExpirationOffset(),
-                                                     expirationOffset );
+                    if ( behavior.getExpirationOffset() != NEVER_EXPIRES ) {
+                        offset = Math.max( behavior.getExpirationOffset(), offset );
                     }
                 }
-                long distance = context.getTemporalDistance() != null ? context.getTemporalDistance().getExpirationOffset( pattern ) : -1;
-                if( distance == -1 ) {
+
+                // if there's no implicit expiration uses the (eventually set) soft one
+                if (offset == NEVER_EXPIRES && !expirationSpec.hard) {
+                    offset = expirationSpec.offset;
+                }
+
+                long distance = context.getExpirationOffset( pattern );
+                if( distance == NEVER_EXPIRES ) {
                     // it means the rules have no temporal constraints, or
                     // the constraints require events to be hold forever. In this 
                     // case, we allow type declarations to override the implicit 
                     // expiration offset by defining an expiration policy with the
                     // @expires tag
-                    otn.setExpirationOffset( expirationOffset );
+                    otn.setExpirationOffset( offset );
                 } else {
-                    otn.setExpirationOffset( Math.max( distance, expirationOffset ) );
+                    otn.setExpirationOffset( Math.max( distance, offset ) );
                 }
             }
         }
 
-        context.setObjectSource( (ObjectSource) utils.attachNode( context,
-                                                                  otn ) );
+        context.setObjectSource( utils.attachNode( context, otn ) );
         context.setObjectTypeNodeMemoryEnabled( objectMemory );
     }
 

@@ -17,11 +17,11 @@ package org.drools.core.reteoo;
 
 import org.drools.core.common.BaseNode;
 import org.drools.core.impl.InternalKnowledgeBase;
+import org.kie.api.KieBase;
 import org.kie.api.runtime.KieSession;
-import org.kie.internal.KnowledgeBase;
 import org.kie.internal.runtime.KnowledgeRuntime;
 
-import java.util.Collection;
+import java.lang.reflect.InvocationTargetException;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -29,7 +29,7 @@ public class ReteDumper {
 
     private ReteDumper() { }
 
-    public static void dumpRete(KnowledgeBase kbase) {
+    public static void dumpRete(KieBase kbase ) {
         dumpRete((InternalKnowledgeBase) kbase);
     }
 
@@ -52,11 +52,33 @@ public class ReteDumper {
     }
 
     private static void dumpNode(BaseNode node, String ident, Set<BaseNode> visitedNodes ) {
-        System.out.println(ident + node);
+        System.out.print(ident + node + " on " + node.getPartitionId());
+        try {
+            Object declaredMask = node.getClass().getMethod("getDeclaredMask").invoke(node);
+            Object inferreddMask = node.getClass().getMethod("getInferredMask").invoke(node);
+            System.out.print(" d "+declaredMask + " i " + inferreddMask);
+        } catch (NoSuchMethodException | SecurityException | IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
+            // do nothing.
+        }
+        try {
+            Object declaredMask = node.getClass().getMethod("getLeftDeclaredMask").invoke(node);
+            Object inferreddMask = node.getClass().getMethod("getLeftInferredMask").invoke(node);
+            System.out.print(" Ld "+declaredMask + " Li " + inferreddMask);
+        } catch (NoSuchMethodException | SecurityException | IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
+            // do nothing.
+        }
+        try {
+            Object declaredMask = node.getClass().getMethod("getRightDeclaredMask").invoke(node);
+            Object inferreddMask = node.getClass().getMethod("getRightInferredMask").invoke(node);
+            System.out.print(" Rd "+declaredMask + " Ri " + inferreddMask);
+        } catch (NoSuchMethodException | SecurityException | IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
+            // do nothing.
+        }
+        System.out.print("\n");
         if (!visitedNodes.add( node )) {
             return;
         }
-        Sink[] sinks = getSinks( node );
+        Sink[] sinks = node.getSinks();
         if (sinks != null) {
             for (Sink sink : sinks) {
                 if (sink instanceof BaseNode) {
@@ -64,21 +86,5 @@ public class ReteDumper {
                 }
             }
         }
-    }
-
-    public static Sink[] getSinks( BaseNode node ) {
-        Sink[] sinks = null;
-        if (node instanceof EntryPointNode ) {
-            EntryPointNode source = (EntryPointNode) node;
-            Collection<ObjectTypeNode> otns = source.getObjectTypeNodes().values();
-            sinks = otns.toArray(new Sink[otns.size()]);
-        } else if (node instanceof ObjectSource ) {
-            ObjectSource source = (ObjectSource) node;
-            sinks = source.getObjectSinkPropagator().getSinks();
-        } else if (node instanceof LeftTupleSource ) {
-            LeftTupleSource source = (LeftTupleSource) node;
-            sinks = source.getSinkPropagator().getSinks();
-        }
-        return sinks;
     }
 }

@@ -16,11 +16,6 @@
 
 package org.drools.core.util;
 
-import org.drools.core.common.DroolsObjectInputStream;
-import org.drools.core.common.DroolsObjectOutputStream;
-import org.kie.api.definition.type.Modifies;
-import org.kie.internal.utils.ClassLoaderUtil;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.Externalizable;
@@ -47,6 +42,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
+import org.drools.core.common.DroolsObjectInputStream;
+import org.drools.core.common.DroolsObjectOutputStream;
+import org.kie.api.definition.type.Modifies;
+import org.kie.internal.utils.ClassLoaderUtil;
+
 import static org.drools.core.util.StringUtils.ucFirst;
 
 public final class ClassUtils {
@@ -61,6 +61,8 @@ public final class ClassUtils {
     private static final String STAR    = "*";
 
     private static final Map<String, String> abbreviationMap;
+
+    private static final Map<String, Class<?>> primitiveNameToType;
 
     static {
         final Map<String, String> m = new HashMap<String, String>();
@@ -78,6 +80,17 @@ public final class ClassUtils {
             r.put(e.getValue(), e.getKey());
         }
         abbreviationMap = Collections.unmodifiableMap(m);
+
+        final Map<String, Class<?>> m2 = new HashMap<String, Class<?>>();
+        m2.put("int", int.class);
+        m2.put("boolean", boolean.class);
+        m2.put("float", float.class);
+        m2.put("long", long.class);
+        m2.put("short", short.class);
+        m2.put("byte", byte.class);
+        m2.put("double", double.class);
+        m2.put("char", char.class);
+        primitiveNameToType = Collections.unmodifiableMap(m2);
     }
 
     static {
@@ -411,13 +424,13 @@ public final class ClassUtils {
         return null;
     }
 
-    public static List<String> getSettableProperties(Class<?> clazz) {
-        Set<SetterInClass> props = new TreeSet<SetterInClass>();
+    public static List<String> getAccessibleProperties( Class<?> clazz ) {
+        Set<PropertyInClass> props = new TreeSet<PropertyInClass>();
         for (Method m : clazz.getMethods()) {
-            if (m.getParameterTypes().length == 1) {
-                String propName = setter2property(m.getName());
-                if (propName != null) {
-                    props.add( new SetterInClass( propName, m.getDeclaringClass() ) );
+            if (m.getParameterTypes().length == 0) {
+                String propName = getter2property(m.getName());
+                if (propName != null && !propName.equals( "class" )) {
+                    props.add( new PropertyInClass( propName, m.getDeclaringClass() ) );
                 }
             }
 
@@ -426,15 +439,15 @@ public final class ClassUtils {
 
         for (Field f : clazz.getFields()) {
             if ( !Modifier.isFinal(f.getModifiers()) && !Modifier.isStatic(f.getModifiers()) ) {
-                props.add( new SetterInClass( f.getName(), f.getDeclaringClass() ) );
+                props.add( new PropertyInClass( f.getName(), f.getDeclaringClass() ) );
             }
         }
 
-        List<String> settableProperties = new ArrayList<String>();
-        for ( SetterInClass setter : props ) {
-            settableProperties.add(setter.setter);
+        List<String> accessibleProperties = new ArrayList<String>();
+        for ( PropertyInClass setter : props ) {
+            accessibleProperties.add(setter.setter);
         }
-        return settableProperties;
+        return accessibleProperties;
     }
 
     public static Method getAccessor(Class<?> clazz, String field) {
@@ -453,24 +466,24 @@ public final class ClassUtils {
         }
     }
 
-    private static void processModifiesAnnotation(Class<?> clazz, Set<SetterInClass> props, Method m) {
+    private static void processModifiesAnnotation( Class<?> clazz, Set<PropertyInClass> props, Method m ) {
         Modifies modifies = m.getAnnotation( Modifies.class );
         if (modifies != null) {
             for (String prop : modifies.value()) {
                 prop = prop.trim();
                 try {
                     Field field = clazz.getField(prop);
-                    props.add( new SetterInClass( field.getName(), field.getDeclaringClass() ) );
+                    props.add( new PropertyInClass( field.getName(), field.getDeclaringClass() ) );
                 } catch (NoSuchFieldException e) {
                     String getter = "get" + prop.substring(0, 1).toUpperCase() + prop.substring(1);
                     try {
                         Method method = clazz.getMethod(getter);
-                        props.add( new SetterInClass( prop, method.getDeclaringClass() ) );
+                        props.add( new PropertyInClass( prop, method.getDeclaringClass() ) );
                     } catch (NoSuchMethodException e1) {
                         getter = "is" + prop.substring(0, 1).toUpperCase() + prop.substring(1);
                         try {
                             Method method = clazz.getMethod(getter);
-                            props.add( new SetterInClass( prop, method.getDeclaringClass() ) );
+                            props.add( new PropertyInClass( prop, method.getDeclaringClass() ) );
                         } catch (NoSuchMethodException e2) {
                             throw new RuntimeException(e2);
                         }
@@ -490,6 +503,10 @@ public final class ClassUtils {
         } else {
             return formal.isAssignableFrom( actual );
         }
+    }
+
+    public static boolean isAssignable( Class<?> type, Object obj ) {
+        return type.isInstance( obj ) || (type.isPrimitive() && convertFromPrimitiveType( type ).isInstance( obj ));
     }
 
     public static boolean isConvertible( Class<?> srcPrimitive, Class<?> tgtPrimitive ) {
@@ -532,17 +549,21 @@ public final class ClassUtils {
         return false;
     }
 
-    private static class SetterInClass implements Comparable {
+    public static boolean isIterable(Class<?> clazz) {
+        return Iterable.class.isAssignableFrom( clazz ) || clazz.isArray();
+    }
+
+    private static class PropertyInClass implements Comparable {
         private final String setter;
         private final Class<?> clazz;
 
-        private SetterInClass(String setter, Class<?> clazz) {
+        private PropertyInClass( String setter, Class<?> clazz ) {
             this.setter = setter;
             this.clazz = clazz;
         }
 
         public int compareTo(Object o) {
-            SetterInClass other = (SetterInClass) o;
+            PropertyInClass other = (PropertyInClass) o;
             if (clazz == other.clazz) {
                 return setter.compareTo(other.setter);
             }
@@ -551,7 +572,7 @@ public final class ClassUtils {
 
         @Override
         public boolean equals(Object obj) {
-            SetterInClass other = (SetterInClass) obj;
+            PropertyInClass other = (PropertyInClass) obj;
             return clazz == other.clazz && setter.equals(other.setter);
         }
 
@@ -631,31 +652,7 @@ public final class ClassUtils {
     }
 
     public static Class<?> convertPrimitiveNameToType( String typeName ) {
-        if (typeName.equals( "int" )) {
-            return int.class;
-        }
-        if (typeName.equals("boolean")) {
-            return boolean.class;
-        }
-        if (typeName.equals("char")) {
-            return char.class;
-        }
-        if (typeName.equals("byte")) {
-            return byte.class;
-        }
-        if (typeName.equals("short")) {
-            return short.class;
-        }
-        if (typeName.equals("float")) {
-            return float.class;
-        }
-        if (typeName.equals("long")) {
-            return long.class;
-        }
-        if (typeName.equals("double")) {
-            return double.class;
-        }
-        return Object.class;
+        return primitiveNameToType.get(typeName);
     }
 
     public static Set<Class<?>> getAllImplementedInterfaceNames( Class<?> klass ) {
@@ -790,5 +787,21 @@ public final class ClassUtils {
             className = classNameBuffer.toString();
         }
         return className;
+    }
+
+    public static Class<?> safeLoadClass(ClassLoader cl, String name) {
+        try {
+            return cl.loadClass( name );
+        }
+        catch ( final ClassNotFoundException cnfe ) { } // class doesn't exist
+        catch ( final NoClassDefFoundError ncdfe ) { } // potential mis-match induced by Mac/OSX
+        return null;
+    }
+
+    public static String getCanonicalSimpleName(Class<?> c) {
+        Class<?> enclosingClass = c.getEnclosingClass();
+        return enclosingClass != null ?
+               getCanonicalSimpleName(enclosingClass) + "." + c.getSimpleName() :
+               c.getSimpleName();
     }
 }

@@ -68,7 +68,7 @@ public class KieRepositoryScannerImpl implements InternalKieScanner {
 
     private ArtifactResolver artifactResolver;
 
-    private Status status = Status.STARTING;
+    private volatile Status status = Status.STARTING;
 
     private KieScannerMBean mbean;
 
@@ -87,7 +87,7 @@ public class KieRepositoryScannerImpl implements InternalKieScanner {
                                                    this.kieContainer.getCreationTimestamp());
 
         artifactResolver = getResolverFor(this.kieContainer, true);
-        usedDependencies = indexAtifacts(artifactResolver);
+        usedDependencies = indexArtifacts(artifactResolver);
 
         KieScannersRegistry.register(this);
         status = Status.STOPPED;
@@ -267,8 +267,14 @@ public class KieRepositoryScannerImpl implements InternalKieScanner {
 
     private class ScanTask extends TimerTask {
         public void run() {
-            scanNow();
-            status = Status.RUNNING;
+            synchronized (KieRepositoryScannerImpl.this) {
+                // don't scan if the scanner was already stopped! This would lead to inconsistent scanner behavior.
+                if (status == Status.STOPPED) {
+                    return;
+                }
+                scanNow();
+                status = Status.RUNNING;
+            }
         }
     }
 
@@ -276,11 +282,13 @@ public class KieRepositoryScannerImpl implements InternalKieScanner {
         if (getStatus() == Status.SHUTDOWN ) {
             throw new IllegalStateException("The scanner was already shut down and can no longer be used.");
         }
+        // Polling can be started so remember the original state.
+        final Status originalStatus = status;
         try {
             status = Status.SCANNING;
             Map<DependencyDescriptor, Artifact> updatedArtifacts = scanForUpdates();
             if (updatedArtifacts.isEmpty()) {
-                status = Status.STOPPED;
+                status = originalStatus;
                 return;
             }
             status = Status.UPDATING;
@@ -303,7 +311,7 @@ public class KieRepositoryScannerImpl implements InternalKieScanner {
             // show we catch exceptions here and shutdown the scanner if one happens?
             
         } finally {
-            status = Status.STOPPED;
+            status = originalStatus;
         }
     }
 
@@ -351,7 +359,7 @@ public class KieRepositoryScannerImpl implements InternalKieScanner {
         return newArtifacts;
     }
 
-    private Map<ReleaseId, DependencyDescriptor> indexAtifacts(ArtifactResolver artifactResolver) {
+    private Map<ReleaseId, DependencyDescriptor> indexArtifacts(ArtifactResolver artifactResolver) {
         Map<ReleaseId, DependencyDescriptor> depsMap = new HashMap<ReleaseId, DependencyDescriptor>();
         for (DependencyDescriptor dep : artifactResolver.getAllDependecies()) {
             if ( !"test".equals(dep.getScope()) && !"provided".equals(dep.getScope()) && !"system".equals(dep.getScope()) ) {
@@ -368,14 +376,13 @@ public class KieRepositoryScannerImpl implements InternalKieScanner {
     }
 
     private boolean isKJar(File jar) {
-        ZipFile zipFile;
-        try {
-            zipFile = new ZipFile( jar );
+        try (ZipFile zipFile = new ZipFile( jar )) {
+            ZipEntry zipEntry = zipFile.getEntry( KieModuleModelImpl.KMODULE_JAR_PATH );
+            return zipEntry != null;
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Failed to open Zip file '" + jar.getAbsolutePath() + "'!", e);
         }
-        ZipEntry zipEntry = zipFile.getEntry( KieModuleModelImpl.KMODULE_JAR_PATH );
-        return zipEntry != null;
+
     }
     
     public synchronized KieScannerMBean getMBean() {

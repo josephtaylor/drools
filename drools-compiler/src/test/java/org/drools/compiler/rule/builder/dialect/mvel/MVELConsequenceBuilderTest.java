@@ -15,6 +15,13 @@
 
 package org.drools.compiler.rule.builder.dialect.mvel;
 
+import java.io.InputStreamReader;
+import java.io.Serializable;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Properties;
+
 import org.drools.compiler.Cheese;
 import org.drools.compiler.builder.impl.KnowledgeBuilderConfigurationImpl;
 import org.drools.compiler.builder.impl.KnowledgeBuilderImpl;
@@ -52,19 +59,13 @@ import org.drools.core.rule.MVELDialectRuntimeData;
 import org.drools.core.rule.Pattern;
 import org.drools.core.spi.ObjectType;
 import org.drools.core.spi.PatternExtractor;
+import org.drools.core.spi.PropagationContext;
 import org.junit.Test;
 import org.kie.internal.KnowledgeBaseFactory;
 import org.kie.internal.builder.conf.LanguageLevelOption;
 import org.mvel2.ParserContext;
 import org.mvel2.compiler.ExpressionCompiler;
 import org.mvel2.debug.DebugTools;
-
-import java.io.InputStreamReader;
-import java.io.Serializable;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Properties;
 
 import static org.junit.Assert.*;
 
@@ -123,8 +124,8 @@ public class MVELConsequenceBuilderTest {
         f0.removeLeftTuple(tuple);
 
         final AgendaItem item = new AgendaItemImpl( 0, tuple, 10,
-                                                pctxFactory.createPropagationContext(1, 1, null, tuple, null),
-                                                new RuleTerminalNode(0, new CompositeObjectSinkAdapterTest.MockBetaNode(), context.getRule(), subrule, 0, new BuildContext( kBase, null )), null);
+                                                pctxFactory.createPropagationContext( 1, PropagationContext.Type.DELETION, null, tuple, null),
+                                                new RuleTerminalNode(0, new CompositeObjectSinkAdapterTest.MockBetaNode(), context.getRule(), subrule, 0, new BuildContext( kBase )), null);
         final DefaultKnowledgeHelper kbHelper = new DefaultKnowledgeHelper( ksession );
         kbHelper.setActivation( item );
         ((MVELConsequence) context.getRule().getConsequence()).compile(  (MVELDialectRuntimeData) pkgBuilder.getPackageRegistry( pkg.getName() ).getDialectRuntimeRegistry().getDialectData( "mvel" ));
@@ -147,7 +148,6 @@ public class MVELConsequenceBuilderTest {
         KnowledgeBuilderConfigurationImpl cfg1 = new KnowledgeBuilderConfigurationImpl( properties );
 
         KnowledgeBuilderImpl pkgBuilder = new KnowledgeBuilderImpl( pkg, cfg1 );
-        final KnowledgeBuilderConfigurationImpl conf = pkgBuilder.getBuilderConfiguration();
         PackageRegistry pkgRegistry = pkgBuilder.getPackageRegistry( pkg.getName() );
         DialectCompiletimeRegistry dialectRegistry = pkgBuilder.getPackageRegistry( pkg.getName() ).getDialectCompiletimeRegistry();
         MVELDialect mvelDialect = (MVELDialect) dialectRegistry.getDialect( pkgRegistry.getDialect() );
@@ -219,7 +219,6 @@ public class MVELConsequenceBuilderTest {
     public void testLineSpanOptionalSemis() throws Exception {
 
         String simpleEx = "foo\nbar\nbaz";
-        MVELConsequenceBuilder cons = new MVELConsequenceBuilder();
         assertEquals( "foo;\nbar;\nbaz",
                       MVELConsequenceBuilder.delimitExpressions( simpleEx ) );
 
@@ -266,10 +265,7 @@ public class MVELConsequenceBuilderTest {
 
             final RuleDescr ruleDescr = pkgDescr.getRules().get( 0 );
 
-            final RuleBuilder builder = new RuleBuilder();
-
             final KnowledgeBuilderImpl pkgBuilder = new KnowledgeBuilderImpl( pkg );
-            final KnowledgeBuilderConfigurationImpl conf = pkgBuilder.getBuilderConfiguration();
             DialectCompiletimeRegistry dialectRegistry = pkgBuilder.getPackageRegistry( pkg.getName() ).getDialectCompiletimeRegistry();
             Dialect dialect = dialectRegistry.getDialect( "mvel" );
 
@@ -279,7 +275,7 @@ public class MVELConsequenceBuilderTest {
                                                              pkg,
                                                              dialect );
 
-            builder.build( context );
+            RuleBuilder.build( context );
 
             assertTrue( context.getErrors().toString(),
                                context.getErrors().isEmpty() );
